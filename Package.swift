@@ -14,7 +14,6 @@ let package = Package(
         .library(name: "FlowDeltaExport", targets: ["FlowDeltaExport"]),
         .library(name: "FlowDeltaLayout", targets: ["FlowDeltaLayout"]),
         .library(name: "FlowDeltaUI", targets: ["FlowDeltaUI"]),
-        .library(name: "FlowDeltaIndexStore", targets: ["FlowDeltaIndexStore"]),
         .executable(name: "flowdelta", targets: ["FlowDeltaCLI"]),
         .executable(name: "FlowDeltaReference", targets: ["FlowDeltaReference"])
     ],
@@ -24,16 +23,12 @@ let package = Package(
         // source-complete 0.7.3 release commit instead.
         .package(
             url: "https://github.com/alex-pinkus/tree-sitter-swift.git",
-            revision: "31d17fe7e818a2048c808b5c6fdc2dc792f4f5b5"
+            exact: "0.7.3-with-generated-files"
         ),
         .package(url: "https://github.com/tree-sitter/tree-sitter-javascript.git", exact: "0.23.1"),
         .package(url: "https://github.com/tree-sitter/tree-sitter-typescript.git", exact: "0.23.2"),
         .package(url: "https://github.com/tree-sitter/tree-sitter-python.git", exact: "0.23.6"),
         .package(url: "https://github.com/tree-sitter/tree-sitter-go.git", exact: "0.23.4"),
-        .package(
-            url: "https://github.com/swiftlang/indexstore-db.git",
-            revision: "c993f4fb4f321fae1945e96a2377742f24e132f4"
-        ),
         .package(url: "https://github.com/apple/swift-argument-parser.git", exact: "1.8.2"),
         .package(url: "https://github.com/hbmartin/HighlightKit.git", exact: "0.3.0"),
         .package(url: "https://github.com/pointfreeco/swift-snapshot-testing.git", exact: "1.19.4")
@@ -64,13 +59,6 @@ let package = Package(
         .target(name: "FlowDeltaGit", dependencies: ["FlowDeltaCore"]),
         .target(name: "FlowDeltaExport", dependencies: ["FlowDeltaCore"]),
         .target(name: "FlowDeltaLayout", dependencies: ["FlowDeltaCore"]),
-        .target(
-            name: "FlowDeltaIndexStore",
-            dependencies: [
-                "FlowDeltaCore",
-                .product(name: "IndexStoreDB", package: "indexstore-db")
-            ]
-        ),
         .target(
             name: "FlowDeltaUI",
             dependencies: [
@@ -134,10 +122,6 @@ let package = Package(
         .testTarget(
             name: "FlowDeltaExportTests",
             dependencies: ["FlowDeltaCore", "FlowDeltaExport"]
-        ),
-        .testTarget(
-            name: "FlowDeltaIndexStoreTests",
-            dependencies: ["FlowDeltaCore", "FlowDeltaIndexStore"]
         ),
         .testTarget(
             name: "FlowDeltaCLITests",

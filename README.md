@@ -2,7 +2,7 @@
 
 FlowDelta is a deterministic Swift library and CLI for explaining how a Git change alters program control and data flow. It parses Swift, TypeScript/JavaScript, Python, and Go into normalized syntax trees; matches declarations and syntax across revisions; constructs statement-level control-flow graphs; and renders matched graph deltas with native AppKit.
 
-Swift and TypeScript/JavaScript also include lexical intraprocedural def-use deltas, explicitly basis-labeled data-context impact, and backward slicing. Source-derived call neighborhoods are always available and can be enriched with IndexStoreDB for Swift.
+Swift and TypeScript/JavaScript also include lexical intraprocedural def-use deltas, explicitly basis-labeled data-context impact, and backward slicing. Source-derived call neighborhoods are always available and can be enriched for Swift by the separately resolved IndexStoreDB extension.
 
 ## Quick start
 
@@ -23,7 +23,7 @@ The default CLI output is an entity triage table followed by per-function flow s
 - `FlowDeltaLayout`: deterministic CFG layout and staged transition values.
 - `FlowDeltaUI`: AppKit graph/review/source views; no SwiftUI or WebKit.
 - `FlowDeltaExport`: table, JSON, Mermaid, and Markdown rendering.
-- `FlowDeltaIndexStore`: optional precise Swift call-edge enrichment from an existing IndexStoreDB index.
+- `Extensions/FlowDeltaIndexStore`: optional precise Swift call-edge enrichment from an existing IndexStoreDB index. It is a separate package so IndexStoreDB's revision-based dependency graph does not prevent exact semantic pins of the core package.
 
 `FDFlowDeltaReviewView`, `FDFlowGraphView`, and `FDFlowSourceView` have Objective-C runtime names for thin host adapters. Package model APIs remain Swift-native.
 
@@ -40,13 +40,14 @@ See [PLAN.md](PLAN.md) for the current architecture, milestone status, and relea
 ```sh
 swift test
 swift build -c release
+swift test --package-path Extensions/FlowDeltaIndexStore
 scripts/run_pinned_tool.sh swiftformat --lint .
 scripts/run_pinned_tool.sh swiftlint lint --strict
 ```
 
 Coverage is enforced from an Xcode result bundle with `scripts/check_coverage.py <result.xcresult>` and ratcheted with `--record-improvements`.
 
-IndexStoreDB enrichment is optional and degrades to source-derived call edges. Configure an existing Swift index with `FLOWDELTA_INDEXSTORE_PATH`, a writable `FLOWDELTA_INDEXDATABASE_PATH`, and the active toolchain's `FLOWDELTA_LIBINDEXSTORE_PATH`.
+IndexStoreDB enrichment is optional and degrades to source-derived call edges. Consumers that deliberately adopt `Extensions/FlowDeltaIndexStore` configure an existing Swift index with `FLOWDELTA_INDEXSTORE_PATH`, a writable `FLOWDELTA_INDEXDATABASE_PATH`, and the active toolchain's `FLOWDELTA_LIBINDEXSTORE_PATH`.
 
 ## Requirements
 

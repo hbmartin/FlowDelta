@@ -15,7 +15,7 @@ Given a base revision and target revision, FlowDelta produces:
 5. a matched graph delta with added, removed, retained, modified, and basis-labeled affected nodes;
 6. native AppKit review views and portable table, JSON, Mermaid, and Markdown artifacts.
 
-`affected` is always basis-labeled. M2 supports control and data context; call claims retain their syntax or IndexStoreDB provenance.
+`affected` is always basis-labeled. M2 supports control and data context; call claims retain their syntax or optional IndexStoreDB-extension provenance.
 
 ## Architecture
 
@@ -28,7 +28,7 @@ Given a base revision and target revision, FlowDelta produces:
 | Delta | `FlowDeltaAnalysis` | revision orchestration, CFG/data projection, basis-labeled causality, call graph |
 | Layout | `FlowDeltaLayout` | deterministic dominator-anchored ranks and back-edge lanes |
 | Present | `FlowDeltaUI` | AppKit, accessible layer-backed node views, Core Animation, highlighted source |
-| Enrich | `FlowDeltaIndexStore` | Optional IndexStoreDB-backed Swift call resolution |
+| Enrich | `Extensions/FlowDeltaIndexStore` | Separately resolved, optional IndexStoreDB-backed Swift call resolution |
 | Interop | `FlowDeltaExport`, `flowdelta` | table/JSON/Mermaid/Markdown and CLI |
 
 The pipeline escalates lazily from cheap triage to function analysis. Hard file, blob, syntax, node, and edge limits degrade the affected scope instead of taking down the whole report.
@@ -89,7 +89,7 @@ The human review timing exercise is a follow-up dogfood metric, not a release ga
 
 - TypeScript/JavaScript, Python, and Go CFG mappings.
 - Swift and TypeScript/JavaScript def-use deltas, data-context affected state, and backward slices.
-- Call-graph neighborhood and IndexStoreDB enrichment.
+- Call-graph neighborhood and separately resolved optional IndexStoreDB enrichment.
 - GitX History Flow tab through exact-pinned package and thin adapter.
 
 Package evidence: `notes/009-m2-validation.md`. GitX integration evidence is maintained in the consuming repository.
@@ -110,13 +110,13 @@ Package evidence: `notes/009-m2-validation.md`. GitX integration evidence is mai
 
 ## M2 release gate
 
-- Debug and release suites pass across all five supported languages and the real IndexStoreDB enrichment path.
+- Debug and release suites pass across all five supported languages; the separately resolved extension passes its real IndexStoreDB enrichment path.
 - Real Git ingestion covers every supported extension, invalid UTF-8 metadata and blobs, revision failures, rename/add/delete, and limits.
 - Delta, Before / After, Calls, forward-slice, backward-slice, and source synchronization interactions pass native AppKit tests.
 - CLI table, JSON, Mermaid, and Markdown smoke artifacts are generated from real history and structurally checked.
 - The pinned formatter and strict linter pass; library coverage stays above the ratcheted floor.
 - A current native diagnostic still is inspected; no screen recording is required.
-- `0.2.0` is tagged only after the package gate is green; GitX then replaces its local `../FlowDelta` development override with an exact remote pin.
+- The corrected `0.2.1` is tagged only after root, extension, and clean exact-pin consumer gates are green; GitX then replaces its local `../FlowDelta` development override with the exact remote pin.
 
 ## Constraints and accepted risks
 

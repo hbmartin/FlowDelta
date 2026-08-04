@@ -1,5 +1,5 @@
 {
-  "originHash" : "a9b7d170b459236e258ab945167a8e021a332b1f3be8090b57e3e765fcd3afa7",
+  "originHash" : "ba91a56d34efce462168e03cea39122beebcd25b1f8cefef4b6b889eab0a3a88",
   "pins" : [
     {
       "identity" : "highlightkit",
@@ -8,14 +8,6 @@
       "state" : {
         "revision" : "13b25eacc65a3e11833d98067a83a7ac48b0ed4b",
         "version" : "0.3.0"
-      }
-    },
-    {
-      "identity" : "indexstore-db",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/swiftlang/indexstore-db.git",
-      "state" : {
-        "revision" : "c993f4fb4f321fae1945e96a2377742f24e132f4"
       }
     },
     {
@@ -34,15 +26,6 @@
       "state" : {
         "revision" : "a8cd6c976f335ed361dcecddb0dc39ebda51bc3e",
         "version" : "1.6.1"
-      }
-    },
-    {
-      "identity" : "swift-lmdb",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/swiftlang/swift-lmdb.git",
-      "state" : {
-        "branch" : "main",
-        "revision" : "a4bc87807721c1fd114bf35464457e2db0d0e6c0"
       }
     },
     {
@@ -113,7 +96,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/alex-pinkus/tree-sitter-swift.git",
       "state" : {
-        "revision" : "31d17fe7e818a2048c808b5c6fdc2dc792f4f5b5"
+        "revision" : "31d17fe7e818a2048c808b5c6fdc2dc792f4f5b5",
+        "version" : "0.7.3-with-generated-files"
       }
     },
     {

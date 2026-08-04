@@ -2,7 +2,7 @@
 
 Date: 2026-08-04
 
-Result: **FlowDelta package gate passed; GitX consumer gate follows the published 0.2.0 tag**
+Result: **FlowDelta implementation gate passed; semantic-release correction validation continues in `notes/010-m2-release-boundary-correction.md`**
 
 Validation began only after `notes/008-m2-implementation.md` declared implementation complete.
 
@@ -22,4 +22,4 @@ The Xcode 27 beta runner emitted its own IDE log-store and launch-session diagno
 
 ## GitX gate
 
-GitX development used the sibling `../FlowDelta` checkout as required. After this package is committed, pushed, and tagged 0.2.0, the consumer project will switch to an exact remote 0.2.0 pin and run its correctness/UI plans, pinned style tools, analyzer and coverage baselines, supported sanitizer checks, final app refresh, and native Flow-tab screenshot.
+GitX development used the sibling `../FlowDelta` checkout as required. The first exact 0.2.0 consumer resolution exposed SwiftPM's prohibition on unstable transitive requirements in semantic releases. `notes/010-m2-release-boundary-correction.md` records the correction and supersedes the originally planned 0.2.0 consumer handoff.

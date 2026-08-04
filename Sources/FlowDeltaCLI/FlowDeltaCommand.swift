@@ -10,7 +10,7 @@ struct FlowDeltaCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "flowdelta",
         abstract: "Explain how two Git revisions change source control and data flow.",
-        version: "0.2.0"
+        version: "0.2.1"
     )
 
     @Option(name: [.customShort("C"), .long], help: "Path to the Git repository.")
