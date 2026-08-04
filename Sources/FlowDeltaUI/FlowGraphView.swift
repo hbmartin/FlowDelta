@@ -4,15 +4,25 @@ import FlowDeltaLayout
 import QuartzCore
 
 @MainActor
+@objc public protocol FlowGraphViewDelegate: AnyObject {
+    func flowGraphView(_ view: FlowGraphView, didSelectNodeWithStableID stableID: String)
+}
+
+@MainActor
 @objc(FDFlowGraphView)
 public final class FlowGraphView: NSView {
     private let canvasLayer = CALayer()
-    private let nodeContainer = CALayer()
     private var edgeContainer = CALayer()
-    private var nodeLayers: [StableID: CAShapeLayer] = [:]
+    private var nodeViews: [StableID: FlowNodeView] = [:]
     private var currentLayout: GraphLayoutResult?
+    private var nodeStates: [StableID: DeltaState] = [:]
+    private var edgeStates: [StableID: DeltaState] = [:]
+    private var selectedNode: StableID?
+    private var emphasizedNodes: Set<StableID>?
 
-    public override init(frame frameRect: NSRect) {
+    public weak var delegate: (any FlowGraphViewDelegate)?
+
+    override public init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         configureLayerTree()
     }
@@ -22,47 +32,57 @@ public final class FlowGraphView: NSView {
         configureLayerTree()
     }
 
-    public override var isFlipped: Bool { true }
+    override public var isFlipped: Bool {
+        true
+    }
 
-    public var renderedNodeCount: Int { nodeLayers.count }
-    public var renderedEdgeCount: Int { edgeContainer.sublayers?.count ?? 0 }
+    public var renderedNodeCount: Int {
+        nodeViews.count
+    }
+
+    public var renderedEdgeCount: Int {
+        edgeContainer.sublayers?.count ?? 0
+    }
 
     public func display(
         graph: ControlFlowGraph,
         layout: GraphLayoutResult,
+        nodeStates: [StableID: DeltaState] = [:],
+        edgeStates: [StableID: DeltaState] = [:],
         animated: Bool = false,
         duration: TimeInterval = 0.6
     ) {
+        self.nodeStates = nodeStates
+        self.edgeStates = edgeStates
         let previousLayout = currentLayout
         let previousEdges = edgeContainer
         let nextEdges = makeEdgeContainer(graph: graph, layout: layout)
-        canvasLayer.insertSublayer(nextEdges, below: nodeContainer)
+        canvasLayer.insertSublayer(nextEdges, at: 0)
         edgeContainer = nextEdges
 
-        let nodesByID = Dictionary(uniqueKeysWithValues: graph.nodes.map { ($0.id, $0) })
-        let nextIDs = Set(nodesByID.keys)
+        let nextIDs = Set(graph.nodes.map(\.id))
         for node in graph.nodes {
-            let layer = nodeLayers[node.id] ?? makeNodeLayer(node)
-            update(layer, for: node)
-            if layer.superlayer == nil {
-                nodeContainer.addSublayer(layer)
+            let nodeView = nodeViews[node.id] ?? makeNodeView(node)
+            update(nodeView, for: node, state: nodeStates[node.id])
+            if nodeView.superview == nil {
+                addSubview(nodeView)
             }
-            nodeLayers[node.id] = layer
+            nodeViews[node.id] = nodeView
         }
 
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        for (id, layer) in nodeLayers {
+        for (id, nodeView) in nodeViews {
             guard let frame = layout.nodeFrames[id] else { continue }
-            layer.frame = frame
-            layer.opacity = 1
-            layer.path = CGPath(
-                roundedRect: layer.bounds,
+            nodeView.frame = frame
+            nodeView.shapeLayer.opacity = 1
+            nodeView.shapeLayer.path = CGPath(
+                roundedRect: nodeView.bounds,
                 cornerWidth: 9,
                 cornerHeight: 9,
                 transform: nil
             )
-            updateTextGeometry(in: layer)
+            nodeView.updateTextGeometry()
         }
         CATransaction.commit()
 
@@ -73,31 +93,49 @@ public final class FlowGraphView: NSView {
                 duration: duration
             )
             animateEdges(from: previousEdges, to: nextEdges, duration: duration)
-            let removedIDs = Set(nodeLayers.keys).subtracting(nextIDs)
+            let removedIDs = Set(nodeViews.keys).subtracting(nextIDs)
             DispatchQueue.main.asyncAfter(deadline: .now() + duration) { [weak self] in
                 guard let self else { return }
                 for id in removedIDs {
-                    self.nodeLayers.removeValue(forKey: id)?.removeFromSuperlayer()
+                    nodeViews.removeValue(forKey: id)?.removeFromSuperview()
                 }
                 previousEdges.removeFromSuperlayer()
             }
         } else {
             previousEdges.removeFromSuperlayer()
-            for id in Set(nodeLayers.keys).subtracting(nextIDs) {
-                nodeLayers.removeValue(forKey: id)?.removeFromSuperlayer()
+            for id in Set(nodeViews.keys).subtracting(nextIDs) {
+                nodeViews.removeValue(forKey: id)?.removeFromSuperview()
             }
         }
 
         currentLayout = layout
         canvasLayer.frame = CGRect(origin: .zero, size: layout.contentSize)
-        nodeContainer.frame = canvasLayer.bounds
         nextEdges.frame = canvasLayer.bounds
         frame.size = layout.contentSize
         needsLayout = true
+        updateNodeEmphasis()
     }
 
     public func hasActiveNodeAnimations() -> Bool {
-        nodeLayers.values.contains { $0.animationKeys()?.isEmpty == false }
+        nodeViews.values.contains { $0.shapeLayer.animationKeys()?.isEmpty == false }
+    }
+
+    public var selectedStableID: String? {
+        selectedNode?.rawValue
+    }
+
+    public var emphasizedStableIDs: Set<String>? {
+        emphasizedNodes.map { Set($0.map(\.rawValue)) }
+    }
+
+    public func selectNode(withStableID stableID: String?) {
+        selectedNode = stableID.map(StableID.init(rawValue:))
+        updateNodeEmphasis()
+    }
+
+    public func emphasizeNodes(withStableIDs stableIDs: Set<String>?) {
+        emphasizedNodes = stableIDs.map { Set($0.map(StableID.init(rawValue:))) }
+        updateNodeEmphasis()
     }
 
     private func configureLayerTree() {
@@ -105,53 +143,51 @@ public final class FlowGraphView: NSView {
         layer = canvasLayer
         canvasLayer.backgroundColor = NSColor.windowBackgroundColor.cgColor
         canvasLayer.addSublayer(edgeContainer)
-        canvasLayer.addSublayer(nodeContainer)
     }
 
-    private func makeNodeLayer(_ node: FlowNode) -> CAShapeLayer {
-        let layer = CAShapeLayer()
-        layer.name = "node:\(node.id.rawValue)"
-        layer.lineWidth = 1
-        layer.shadowColor = NSColor.black.cgColor
-        layer.shadowOpacity = 0.16
-        layer.shadowRadius = 3
-        layer.shadowOffset = CGSize(width: 0, height: 1)
-
-        let text = CATextLayer()
-        text.name = "label"
-        text.alignmentMode = .center
-        text.contentsScale = NSScreen.main?.backingScaleFactor ?? 2
-        text.font = NSFont.systemFont(ofSize: 12, weight: .medium)
-        text.fontSize = 12
-        text.foregroundColor = NSColor.labelColor.cgColor
-        text.isWrapped = true
-        layer.addSublayer(text)
-        update(layer, for: node)
-        return layer
-    }
-
-    private func update(_ layer: CAShapeLayer, for node: FlowNode) {
-        let fill: NSColor
-        switch node.kind {
-        case .entry:
-            fill = NSColor(calibratedRed: 0.82, green: 0.91, blue: 0.78, alpha: 1)
-        case .exit, .errorExit:
-            fill = NSColor(calibratedRed: 0.94, green: 0.82, blue: 0.78, alpha: 1)
-        case .condition, .switchCase:
-            fill = NSColor(calibratedRed: 0.98, green: 0.91, blue: 0.66, alpha: 1)
-        case .deferBlock, .catchBlock:
-            fill = NSColor(calibratedRed: 0.86, green: 0.82, blue: 0.94, alpha: 1)
-        case .basicBlock:
-            fill = NSColor(calibratedRed: 0.83, green: 0.89, blue: 0.95, alpha: 1)
+    private func makeNodeView(_ node: FlowNode) -> FlowNodeView {
+        let nodeView = FlowNodeView(stableID: node.id)
+        nodeView.onSelect = { [weak self] id in
+            guard let self else { return }
+            selectedNode = id
+            updateNodeEmphasis()
+            delegate?.flowGraphView(self, didSelectNodeWithStableID: id.rawValue)
         }
-        layer.fillColor = fill.cgColor
-        layer.strokeColor = NSColor(calibratedWhite: 0.35, alpha: 0.8).cgColor
-        (layer.sublayers?.first { $0.name == "label" } as? CATextLayer)?.string = node.label
+        update(nodeView, for: node, state: nodeStates[node.id])
+        return nodeView
     }
 
-    private func updateTextGeometry(in layer: CAShapeLayer) {
-        guard let text = layer.sublayers?.first(where: { $0.name == "label" }) else { return }
-        text.frame = layer.bounds.insetBy(dx: 9, dy: 9)
+    private func update(_ nodeView: FlowNodeView, for node: FlowNode, state: DeltaState?) {
+        let fill = switch state {
+        case .added:
+            NSColor(calibratedRed: 0.79, green: 0.91, blue: 0.75, alpha: 1)
+        case .removed:
+            NSColor(calibratedRed: 0.95, green: 0.77, blue: 0.72, alpha: 1)
+        case .modified:
+            NSColor(calibratedRed: 0.97, green: 0.88, blue: 0.57, alpha: 1)
+        case .affected:
+            NSColor(calibratedRed: 0.84, green: 0.78, blue: 0.93, alpha: 1)
+        case .retained:
+            NSColor(calibratedRed: 0.83, green: 0.89, blue: 0.95, alpha: 1)
+        case nil:
+            switch node.kind {
+            case .entry:
+                NSColor(calibratedRed: 0.82, green: 0.91, blue: 0.78, alpha: 1)
+            case .exit, .errorExit:
+                NSColor(calibratedRed: 0.94, green: 0.82, blue: 0.78, alpha: 1)
+            case .condition, .switchCase:
+                NSColor(calibratedRed: 0.98, green: 0.91, blue: 0.66, alpha: 1)
+            case .deferBlock, .catchBlock:
+                NSColor(calibratedRed: 0.86, green: 0.82, blue: 0.94, alpha: 1)
+            case .basicBlock:
+                NSColor(calibratedRed: 0.83, green: 0.89, blue: 0.95, alpha: 1)
+            }
+        }
+        nodeView.shapeLayer.fillColor = fill.cgColor
+        nodeView.shapeLayer.strokeColor = NSColor(calibratedWhite: 0.35, alpha: 0.8).cgColor
+        nodeView.labelLayer.string = node.label
+        nodeView.setAccessibilityLabel(node.label.replacingOccurrences(of: "\n", with: ", "))
+        nodeView.setAccessibilityHelp(state.map { "Flow node state: \($0.rawValue)" } ?? "Control-flow node")
     }
 
     private func makeEdgeContainer(graph: ControlFlowGraph, layout: GraphLayoutResult) -> CALayer {
@@ -167,9 +203,22 @@ public final class FlowGraphView: NSView {
             layer.name = "edge:\(edge.id.rawValue)"
             layer.path = path
             layer.fillColor = nil
-            layer.strokeColor = route.isBackEdge
-                ? NSColor.systemOrange.cgColor
-                : NSColor(calibratedWhite: 0.35, alpha: 0.75).cgColor
+            let state = edgeStates[edge.id]
+            switch state {
+            case .added:
+                layer.strokeColor = NSColor.systemGreen.cgColor
+            case .removed:
+                layer.strokeColor = NSColor.systemRed.cgColor
+                layer.lineDashPattern = [5, 3]
+            case .modified:
+                layer.strokeColor = NSColor.systemOrange.cgColor
+            case .affected:
+                layer.strokeColor = NSColor.systemPurple.cgColor
+            case .retained, nil:
+                layer.strokeColor = route.isBackEdge
+                    ? NSColor.systemOrange.cgColor
+                    : NSColor(calibratedWhite: 0.35, alpha: 0.75).cgColor
+            }
             layer.lineWidth = route.isBackEdge ? 2 : 1.5
             layer.lineJoin = .round
             layer.lineCap = .round
@@ -185,7 +234,7 @@ public final class FlowGraphView: NSView {
     ) {
         let transition = StagedLayoutTransition(oldFrames: oldFrames, newFrames: newFrames)
         let progresses: [CGFloat] = [0, 0.25, 0.75, 1]
-        for (id, layer) in nodeLayers {
+        for (id, nodeView) in nodeViews {
             let states = progresses.compactMap { progress in
                 transition.states(at: progress).first { $0.id == id }
             }
@@ -203,7 +252,7 @@ public final class FlowGraphView: NSView {
             group.animations = [position, bounds, opacity]
             group.duration = duration
             group.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            layer.add(group, forKey: "flowdelta.stagedTransition")
+            nodeView.shapeLayer.add(group, forKey: "flowdelta.stagedTransition")
         }
     }
 
@@ -220,8 +269,89 @@ public final class FlowGraphView: NSView {
         fadeIn.duration = duration
         new.add(fadeIn, forKey: "flowdelta.revealAddedEdges")
     }
+
+    private func updateNodeEmphasis() {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        for (id, nodeView) in nodeViews {
+            let layer = nodeView.shapeLayer
+            let isSelected = id == selectedNode
+            layer.lineWidth = isSelected ? 3 : 1
+            layer.strokeColor = isSelected
+                ? NSColor.keyboardFocusIndicatorColor.cgColor
+                : NSColor(calibratedWhite: 0.35, alpha: 0.8).cgColor
+            layer.opacity = emphasizedNodes.map { $0.contains(id) ? 1 : 0.20 } ?? 1
+        }
+        CATransaction.commit()
+    }
+}
+
+@MainActor
+private final class FlowNodeView: NSView {
+    let stableID: StableID
+    let shapeLayer = CAShapeLayer()
+    let labelLayer = CATextLayer()
+    var onSelect: ((StableID) -> Void)?
+
+    init(stableID: StableID) {
+        self.stableID = stableID
+        super.init(frame: .zero)
+        wantsLayer = true
+        layer = shapeLayer
+        shapeLayer.name = "node:\(stableID.rawValue)"
+        shapeLayer.lineWidth = 1
+        shapeLayer.shadowColor = NSColor.black.cgColor
+        shapeLayer.shadowOpacity = 0.16
+        shapeLayer.shadowRadius = 3
+        shapeLayer.shadowOffset = CGSize(width: 0, height: 1)
+        labelLayer.name = "label"
+        labelLayer.alignmentMode = .center
+        labelLayer.contentsScale = NSScreen.main?.backingScaleFactor ?? 2
+        labelLayer.font = NSFont.systemFont(ofSize: 12, weight: .medium)
+        labelLayer.fontSize = 12
+        labelLayer.foregroundColor = NSColor.labelColor.cgColor
+        labelLayer.isWrapped = true
+        shapeLayer.addSublayer(labelLayer)
+        setAccessibilityElement(true)
+        setAccessibilityRole(.button)
+        setAccessibilityIdentifier(stableID.rawValue)
+    }
+
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    override var isFlipped: Bool {
+        true
+    }
+
+    override func layout() {
+        super.layout()
+        shapeLayer.path = CGPath(
+            roundedRect: bounds,
+            cornerWidth: 9,
+            cornerHeight: 9,
+            transform: nil
+        )
+        updateTextGeometry()
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        onSelect?(stableID)
+    }
+
+    override func accessibilityPerformPress() -> Bool {
+        onSelect?(stableID)
+        return true
+    }
+
+    func updateTextGeometry() {
+        labelLayer.frame = bounds.insetBy(dx: 9, dy: 9)
+    }
 }
 
 private extension CGRect {
-    var center: CGPoint { CGPoint(x: midX, y: midY) }
+    var center: CGPoint {
+        CGPoint(x: midX, y: midY)
+    }
 }

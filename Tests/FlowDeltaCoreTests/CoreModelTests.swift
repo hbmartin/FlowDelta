@@ -1,6 +1,6 @@
+@testable import FlowDeltaCore
 import Foundation
 import XCTest
-@testable import FlowDeltaCore
 
 final class CoreModelTests: XCTestCase {
     func testStableIDIsDeterministicAndNamespaced() {
@@ -25,7 +25,7 @@ final class CoreModelTests: XCTestCase {
             children: [
                 leaf(id: "identifier-one", kind: "simple_identifier", text: "x"),
                 leaf(id: "comment-one", kind: "comment", text: "// first"),
-                leaf(id: "integer-one", kind: "integer_literal", text: "1"),
+                leaf(id: "integer-one", kind: "integer_literal", text: "1")
             ]
         )
         let commentOnlyChange = SyntaxNode(
@@ -36,7 +36,7 @@ final class CoreModelTests: XCTestCase {
             children: [
                 leaf(id: "identifier-two", kind: "simple_identifier", text: "x"),
                 leaf(id: "comment-two", kind: "comment", text: "// second"),
-                leaf(id: "integer-two", kind: "integer_literal", text: "1"),
+                leaf(id: "integer-two", kind: "integer_literal", text: "1")
             ]
         )
         let semanticChange = SyntaxNode(
@@ -47,7 +47,7 @@ final class CoreModelTests: XCTestCase {
             children: [
                 leaf(id: "identifier-three", kind: "simple_identifier", text: "x"),
                 leaf(id: "comment-three", kind: "comment", text: "// second"),
-                leaf(id: "integer-three", kind: "integer_literal", text: "2"),
+                leaf(id: "integer-three", kind: "integer_literal", text: "2")
             ]
         )
 
@@ -81,7 +81,7 @@ final class CoreModelTests: XCTestCase {
         let entity = entityChange()
         let edges = [
             FlowEdge(source: entry, target: branch, kind: .fallthrough),
-            FlowEdge(source: branch, target: end, kind: .conditionTrue),
+            FlowEdge(source: branch, target: end, kind: .conditionTrue)
         ].map { FlowEdgeDelta(id: $0.id, old: nil, new: $0, state: .added) }
         let delta = FunctionFlowDelta(
             id: StableID(rawValue: "delta"),

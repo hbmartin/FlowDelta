@@ -1,0 +1,52 @@
+[
+  {
+    "repository": "https://github.com/swiftlang/swift-syntax",
+    "commit": "39d18d4b9960adf8bf01026a5471c98d62fa3f64",
+    "reviewQuestion": "Does protocol inheritance lookup still enter members?"
+  },
+  {
+    "repository": "https://github.com/swiftlang/swift-syntax",
+    "commit": "5654fcb6cdae10454b16100ebde315a89396040b",
+    "reviewQuestion": "When does incremental parsing fall back to a full parse?"
+  },
+  {
+    "repository": "https://github.com/swiftlang/swift-syntax",
+    "commit": "f1ae59e17077845794f114c3482d6805dde58df6",
+    "reviewQuestion": "Which switch positions now accept pound diagnostics?"
+  },
+  {
+    "repository": "https://github.com/swiftlang/swift-syntax",
+    "commit": "a856f00610c37701637103c5fe577bd53e453d19",
+    "reviewQuestion": "How are excess version components truncated and diagnosed?"
+  },
+  {
+    "repository": "https://github.com/swiftlang/swift-syntax",
+    "commit": "9390cffb85e31f0ddc574d0ce2911a42bdbb11b5",
+    "reviewQuestion": "Which configured warning-control attributes take effect?"
+  },
+  {
+    "repository": "https://github.com/apple/swift-nio",
+    "commit": "72973283d7780ba94d69caff08c5c3c72a2dc6f7",
+    "reviewQuestion": "Which descriptor is reported on Windows after close?"
+  },
+  {
+    "repository": "https://github.com/apple/swift-nio",
+    "commit": "afc79dd0837424b5541eed16777294d20438a414",
+    "reviewQuestion": "Where can isolated event loops customize scheduled callbacks?"
+  },
+  {
+    "repository": "https://github.com/apple/swift-nio",
+    "commit": "3777a701156d1d299576141e349f557e0523541b",
+    "reviewQuestion": "Which positional I/O failures now fall back?"
+  },
+  {
+    "repository": "https://github.com/apple/swift-nio",
+    "commit": "0b18836bd8b0162e7e17a995a3fbee20ed8f3b2b",
+    "reviewQuestion": "Which HTTP response paths now suppress body bytes?"
+  },
+  {
+    "repository": "https://github.com/apple/swift-nio",
+    "commit": "eeb20e7f958f608064360d16542d16bf3219170c",
+    "reviewQuestion": "What are the restored HTTP decoder header limits?"
+  }
+]

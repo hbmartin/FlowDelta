@@ -16,6 +16,10 @@ final class FlowGraphViewTests: XCTestCase {
         XCTAssertEqual(view.renderedNodeCount, 30)
         XCTAssertEqual(view.renderedEdgeCount, 31)
         XCTAssertEqual(view.frame.size, result.contentSize)
+        XCTAssertEqual(view.subviews.count { $0.isAccessibilityElement() }, 30)
+
+        view.selectNode(withStableID: graph.nodes[4].id.rawValue)
+        XCTAssertEqual(view.selectedStableID, graph.nodes[4].id.rawValue)
 
         let representation = view.bitmapImageRepForCachingDisplay(in: view.bounds)
         XCTAssertNotNil(representation)

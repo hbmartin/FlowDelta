@@ -29,7 +29,8 @@ final class MatcherTests: XCTestCase {
 
     func testEntityMatcherUsesFuzzyTokensForRenameAndEdit() throws {
         let old = try entities("func before(_ value: Int) -> Int { let doubled = value * 2; return doubled }")
-        let new = try entities("func after(_ value: Int) -> Int { let doubled = value * 2; audit(doubled); return doubled }")
+        let new =
+            try entities("func after(_ value: Int) -> Int { let doubled = value * 2; audit(doubled); return doubled }")
         let triage = EntityMatcher().triage(old: old, new: new)
 
         XCTAssertEqual(triage.matches.count, 1)

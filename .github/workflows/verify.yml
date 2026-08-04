@@ -1,0 +1,33 @@
+name: Verify
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select Xcode 26
+        run: sudo xcode-select -s /Applications/Xcode_26.0.app
+      - name: Install Mint
+        run: brew install mint
+      - name: Check formatting
+        run: scripts/run_pinned_tool.sh swiftformat --lint .
+      - name: Lint
+        run: scripts/run_pinned_tool.sh swiftlint lint --strict
+      - name: Test
+        run: swift test
+      - name: Coverage
+        run: |
+          mkdir -p build
+          xcodebuild test \
+            -scheme FlowDelta-Package \
+            -destination 'platform=macOS' \
+            -enableCodeCoverage YES \
+            -resultBundlePath build/FlowDeltaCoverage.xcresult
+          scripts/check_coverage.py build/FlowDeltaCoverage.xcresult
+      - name: Release build
+        run: swift build -c release

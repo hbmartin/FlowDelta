@@ -118,7 +118,7 @@ public struct DominatorAnchoredLayout: Sendable {
                     CGPoint(x: source.midX, y: source.maxY),
                     CGPoint(x: laneX, y: source.maxY + configuration.verticalSpacing / 3),
                     CGPoint(x: laneX, y: target.minY - configuration.verticalSpacing / 3),
-                    CGPoint(x: target.midX, y: target.minY),
+                    CGPoint(x: target.midX, y: target.minY)
                 ]
             } else {
                 let middleY = (source.maxY + target.minY) / 2
@@ -126,7 +126,7 @@ public struct DominatorAnchoredLayout: Sendable {
                     CGPoint(x: source.midX, y: source.maxY),
                     CGPoint(x: source.midX, y: middleY),
                     CGPoint(x: target.midX, y: middleY),
-                    CGPoint(x: target.midX, y: target.minY),
+                    CGPoint(x: target.midX, y: target.minY)
                 ]
             }
             routes[edge.id] = EdgeRoute(id: edge.id, points: points, isBackEdge: isBackEdge)
@@ -184,7 +184,9 @@ public struct DominatorAnchoredLayout: Sendable {
                     changed = true
                 }
             }
-            if !changed { break }
+            if !changed {
+                break
+            }
         }
         return ranks
     }

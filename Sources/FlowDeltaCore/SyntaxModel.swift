@@ -67,7 +67,9 @@ public struct SyntaxNode: Codable, Hashable, Sendable, Identifiable {
     }
 
     public func firstDescendant(kind: String) -> SyntaxNode? {
-        if self.kind == kind { return self }
+        if self.kind == kind {
+            return self
+        }
         return children.lazy.compactMap { $0.firstDescendant(kind: kind) }.first
     }
 }

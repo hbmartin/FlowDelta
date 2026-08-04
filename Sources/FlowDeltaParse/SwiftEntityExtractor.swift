@@ -10,7 +10,11 @@ public struct SwiftEntityExtractor: Sendable {
     public func entities(in tree: SyntaxTree) -> [SourceEntity] {
         var result: [SourceEntity] = []
         visit(tree.root, containers: [], insideCallable: false, path: tree.snapshot.path, result: &result)
-        let sorted = result.sorted { ($0.path, $0.range.start, $0.qualifiedName) < ($1.path, $1.range.start, $1.qualifiedName) }
+        let sorted = result.sorted { ($0.path, $0.range.start, $0.qualifiedName) < (
+            $1.path,
+            $1.range.start,
+            $1.qualifiedName
+        ) }
         Self.logger.debug("Extracted \(sorted.count) Swift entities from \(tree.snapshot.path, privacy: .public)")
         return sorted
     }
@@ -92,12 +96,11 @@ public struct SwiftEntityExtractor: Sendable {
             return nil
         }
 
-        let callableSuffix: String
-        switch kind {
+        let callableSuffix: String = switch kind {
         case .function, .method, .initializer, .subscriptDeclaration, .operatorDeclaration:
-            callableSuffix = parameterClause(in: node) ?? "()"
+            parameterClause(in: node) ?? "()"
         case .type, .typeExtension, .deinitializer, .topLevelBinding:
-            callableSuffix = ""
+            ""
         }
         let qualifiedName = (containers + [name + callableSuffix]).joined(separator: ".")
         let body = node.firstChild(fieldName: "body") ?? node

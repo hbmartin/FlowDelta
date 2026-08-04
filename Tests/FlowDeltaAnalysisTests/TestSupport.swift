@@ -10,7 +10,8 @@ func fixture(_ name: String, extension fileExtension: String = "swift") throws -
         forResource: name,
         withExtension: fileExtension,
         subdirectory: "Fixtures"
-    ) else {
+    )
+    else {
         throw FixtureError.missing("\(name).\(fileExtension)")
     }
     return try String(contentsOf: url, encoding: .utf8)

@@ -12,6 +12,16 @@ public enum AffectedBasis: String, Codable, CaseIterable, Sendable {
     case control
 }
 
+public enum FlowChangeClassification: String, Codable, CaseIterable, Sendable {
+    case guardInserted
+    case conditionChanged
+    case earlyReturnAdded
+    case branchAdded
+    case branchRemoved
+    case loopChanged
+    case errorPathAdded
+}
+
 public struct CausalityLink: Codable, Hashable, Sendable {
     public let triggerID: StableID
     public let affectedID: StableID
@@ -73,6 +83,7 @@ public struct FunctionFlowDelta: Codable, Hashable, Sendable, Identifiable {
     public let newGraph: ControlFlowGraph?
     public let nodes: [FlowNodeDelta]
     public let edges: [FlowEdgeDelta]
+    public let classifications: [FlowChangeClassification]
 
     public init(
         id: StableID,
@@ -81,7 +92,8 @@ public struct FunctionFlowDelta: Codable, Hashable, Sendable, Identifiable {
         oldGraph: ControlFlowGraph?,
         newGraph: ControlFlowGraph?,
         nodes: [FlowNodeDelta],
-        edges: [FlowEdgeDelta]
+        edges: [FlowEdgeDelta],
+        classifications: [FlowChangeClassification] = []
     ) {
         self.id = id
         self.entityChange = entityChange
@@ -90,6 +102,7 @@ public struct FunctionFlowDelta: Codable, Hashable, Sendable, Identifiable {
         self.newGraph = newGraph
         self.nodes = nodes.sorted { $0.id < $1.id }
         self.edges = edges.sorted { $0.id < $1.id }
+        self.classifications = Array(Set(classifications)).sorted { $0.rawValue < $1.rawValue }
     }
 
     public func forwardSlice(from nodeID: StableID) -> Set<StableID> {

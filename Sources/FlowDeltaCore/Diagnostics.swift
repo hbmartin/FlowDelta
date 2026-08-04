@@ -50,11 +50,11 @@ public struct AnalysisLimits: Codable, Hashable, Sendable {
 
     public init(
         maximumChangedFiles: Int = 500,
-        maximumBlobBytes: Int = 2 * 1_024 * 1_024,
+        maximumBlobBytes: Int = 2 * 1024 * 1024,
         maximumSyntaxNodesPerFile: Int = 100_000,
-        maximumSyntaxNodesPerEntity: Int = 10_000,
+        maximumSyntaxNodesPerEntity: Int = 10000,
         maximumFlowNodesPerFunction: Int = 500,
-        maximumFlowEdgesPerFunction: Int = 2_000
+        maximumFlowEdgesPerFunction: Int = 2000
     ) {
         self.maximumChangedFiles = maximumChangedFiles
         self.maximumBlobBytes = maximumBlobBytes

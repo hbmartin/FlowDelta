@@ -112,7 +112,11 @@ private struct Builder {
         case "do_statement":
             return try lowerDoCatch(statement, incoming: incoming, context: context)
         case "defer_statement":
-            let registration = try sourceNode(statement, kind: .deferBlock, label: "register \(compactLabel(statement.text))")
+            let registration = try sourceNode(
+                statement,
+                kind: .deferBlock,
+                label: "register \(compactLabel(statement.text))"
+            )
             try connect(incoming, to: registration.id)
             context.activeDefers.append(statement)
             return [.fallthrough(registration.id)]
@@ -174,15 +178,14 @@ private struct Builder {
             return thenExits + [PendingExit(nodeID: condition.id, edgeKind: .conditionFalse, label: "false")]
         }
         var elseContext = context
-        var elseExits: [PendingExit]
-        if branches[1].kind == "if_statement" {
-            elseExits = try lower(
+        var elseExits: [PendingExit] = if branches[1].kind == "if_statement" {
+            try lower(
                 branches[1],
                 incoming: [PendingExit(nodeID: condition.id, edgeKind: .conditionFalse, label: "false")],
                 context: &elseContext
             )
         } else {
-            elseExits = try lowerSequence(
+            try lowerSequence(
                 statements(in: branches[1]),
                 incoming: [PendingExit(nodeID: condition.id, edgeKind: .conditionFalse, label: "false")],
                 context: &elseContext
@@ -304,7 +307,7 @@ private struct Builder {
         var caseNodes: [FlowNode] = []
         for entry in entries {
             let label = entry.text.split(separator: ":", maxSplits: 1).first.map(String.init) ?? "case"
-            caseNodes.append(try sourceNode(entry, kind: .switchCase, label: compactLabel(label)))
+            try caseNodes.append(sourceNode(entry, kind: .switchCase, label: compactLabel(label)))
         }
         for caseNode in caseNodes {
             try appendEdge(source: condition.id, target: caseNode.id, kind: .switchCase, label: caseNode.label)
@@ -534,7 +537,8 @@ private struct Builder {
     }
 
     func conditionLabel(_ node: SyntaxNode) -> String {
-        let values = node.children.filter { $0.fieldName == "condition" || $0.fieldName == "expr" || $0.fieldName == "collection" }
+        let values = node.children
+            .filter { $0.fieldName == "condition" || $0.fieldName == "expr" || $0.fieldName == "collection" }
         if !values.isEmpty {
             return compactLabel(values.map(\.text).joined(separator: ", "))
         }
@@ -543,8 +547,9 @@ private struct Builder {
     }
 
     func conditionSyntaxIDs(_ node: SyntaxNode) -> [StableID] {
-        let values = node.children.filter { $0.fieldName == "condition" || $0.fieldName == "expr" || $0.fieldName == "collection" }
-        return values.isEmpty ? [node.id] : values.map(\.id)
+        let values = node.children
+            .filter { $0.fieldName == "condition" || $0.fieldName == "expr" || $0.fieldName == "collection" }
+        return values.isEmpty ? [node.id] : values.flatMap { $0.descendants.map(\.id) }
     }
 
     func compactLabel(_ text: String) -> String {

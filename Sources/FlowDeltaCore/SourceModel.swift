@@ -36,9 +36,17 @@ public struct SourceRange: Codable, Hashable, Sendable {
         self.end = end
     }
 
-    public var utf8Range: Range<Int> { start.utf8Offset ..< end.utf8Offset }
-    public var utf16Range: Range<Int> { start.utf16Offset ..< end.utf16Offset }
-    public var isEmpty: Bool { start == end }
+    public var utf8Range: Range<Int> {
+        start.utf8Offset ..< end.utf8Offset
+    }
+
+    public var utf16Range: Range<Int> {
+        start.utf16Offset ..< end.utf16Offset
+    }
+
+    public var isEmpty: Bool {
+        start == end
+    }
 
     public func contains(utf16Offset: Int) -> Bool {
         utf16Range.contains(utf16Offset)
@@ -70,15 +78,22 @@ public struct SourceSnapshot: Codable, Hashable, Sendable {
 public struct FileComparison: Codable, Hashable, Sendable {
     public let old: SourceSnapshot?
     public let new: SourceSnapshot?
+    public let unifiedDiff: String?
 
-    public init(old: SourceSnapshot?, new: SourceSnapshot?) {
+    public init(old: SourceSnapshot?, new: SourceSnapshot?, unifiedDiff: String? = nil) {
         precondition(old != nil || new != nil)
         self.old = old
         self.new = new
+        self.unifiedDiff = unifiedDiff
     }
 
-    public var path: String { new?.path ?? old?.path ?? "" }
-    public var language: SourceLanguage { new?.language ?? old?.language ?? .swift }
+    public var path: String {
+        new?.path ?? old?.path ?? ""
+    }
+
+    public var language: SourceLanguage {
+        new?.language ?? old?.language ?? .swift
+    }
 }
 
 public struct RevisionComparison: Codable, Hashable, Sendable {

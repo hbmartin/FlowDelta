@@ -97,7 +97,8 @@ public struct ControlFlowGraph: Codable, Hashable, Sendable {
     ) {
         self.entityID = entityID
         self.nodes = nodes.sorted { ($0.sourceOrder, $0.id) < ($1.sourceOrder, $1.id) }
-        self.edges = edges.sorted { ($0.source, $0.target, $0.kind.rawValue) < ($1.source, $1.target, $1.kind.rawValue) }
+        self.edges = edges
+            .sorted { ($0.source, $0.target, $0.kind.rawValue) < ($1.source, $1.target, $1.kind.rawValue) }
         self.entryID = entryID
         self.exitID = exitID
         self.errorExitID = errorExitID

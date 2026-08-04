@@ -88,7 +88,9 @@ public struct EntityMatcher: Sendable {
             }
         }
         scored.sort {
-            if $0.2 != $1.2 { return $0.2 > $1.2 }
+            if $0.2 != $1.2 {
+                return $0.2 > $1.2
+            }
             return ($0.0.path, $0.0.qualifiedName, $0.1.path, $0.1.qualifiedName)
                 < ($1.0.path, $1.0.qualifiedName, $1.1.path, $1.1.qualifiedName)
         }
@@ -116,7 +118,12 @@ public struct EntityMatcher: Sendable {
             }
         }
         return candidates.sorted {
-            ($0.0.path, $0.0.qualifiedName, $0.1.path, $0.1.qualifiedName)
+            let leftSamePath = $0.0.path == $0.1.path
+            let rightSamePath = $1.0.path == $1.1.path
+            if leftSamePath != rightSamePath {
+                return leftSamePath
+            }
+            return ($0.0.path, $0.0.qualifiedName, $0.1.path, $0.1.qualifiedName)
                 < ($1.0.path, $1.0.qualifiedName, $1.1.path, $1.1.qualifiedName)
         }
     }
@@ -142,15 +149,14 @@ public struct EntityMatcher: Sendable {
     }
 
     private func change(for match: EntityMatch) -> EntityChange {
-        let kind: EntityChangeKind
-        if match.old.qualifiedName != match.new.qualifiedName {
-            kind = .renamed
+        let kind: EntityChangeKind = if match.old.qualifiedName != match.new.qualifiedName {
+            .renamed
         } else if match.old.path != match.new.path {
-            kind = .moved
+            .moved
         } else if match.old.body.structuralDigest != match.new.body.structuralDigest {
-            kind = .modified
+            .modified
         } else {
-            kind = .unchanged
+            .unchanged
         }
         return EntityChange(kind: kind, old: match.old, new: match.new, confidence: match.confidence)
     }
@@ -168,7 +174,9 @@ public struct EntityMatcher: Sendable {
     }
 
     static func tokenDice(_ lhs: [String], _ rhs: [String]) -> Double {
-        if lhs.isEmpty && rhs.isEmpty { return 1 }
+        if lhs.isEmpty, rhs.isEmpty {
+            return 1
+        }
         var leftCounts = lhs.reduce(into: [String: Int]()) { $0[$1, default: 0] += 1 }
         var intersection = 0
         for token in rhs where leftCounts[token, default: 0] > 0 {

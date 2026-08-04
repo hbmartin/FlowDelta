@@ -103,6 +103,6 @@ final class LayoutTests: XCTestCase {
 
     private static func milliseconds(_ duration: Duration) -> Double {
         let components = duration.components
-        return Double(components.seconds) * 1_000 + Double(components.attoseconds) / 1_000_000_000_000_000
+        return Double(components.seconds) * 1000 + Double(components.attoseconds) / 1_000_000_000_000_000
     }
 }

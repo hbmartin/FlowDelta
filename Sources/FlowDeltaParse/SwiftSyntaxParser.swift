@@ -64,7 +64,7 @@ public struct SwiftSyntaxParser: Sendable {
         children.reserveCapacity(node.childCount)
         for childIndex in 0 ..< node.childCount {
             guard let child = node.child(at: childIndex) else { continue }
-            children.append(try normalize(
+            try children.append(normalize(
                 child,
                 fieldName: node.fieldNameForChild(at: childIndex),
                 path: path,
@@ -94,7 +94,7 @@ public struct SwiftSyntaxParser: Sendable {
                     kind,
                     String(range.start.utf16Offset),
                     String(range.end.utf16Offset),
-                    fieldName ?? "",
+                    fieldName ?? ""
                 ]
             ),
             kind: kind,

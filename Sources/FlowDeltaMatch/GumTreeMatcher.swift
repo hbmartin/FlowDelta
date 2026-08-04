@@ -73,7 +73,7 @@ public struct GumTreeMatcher: Sendable {
             if oldNode.children.isEmpty,
                newNode.children.isEmpty,
                oldNode.text.trimmingCharacters(in: .whitespacesAndNewlines)
-                != newNode.text.trimmingCharacters(in: .whitespacesAndNewlines)
+               != newNode.text.trimmingCharacters(in: .whitespacesAndNewlines)
             {
                 operations.append(EditOperation(kind: .update, oldID: oldNode.id, newID: newNode.id))
             }

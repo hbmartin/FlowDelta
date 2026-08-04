@@ -1,9 +1,8 @@
 import FlowDeltaAnalysis
 import FlowDeltaCore
 import FlowDeltaFlow
-import FlowDeltaParse
-import XCTest
 @testable import FlowDeltaParse
+import XCTest
 
 final class ParserAndFlowTests: XCTestCase {
     func testSourceIndexPreservesUTF8AndUTF16Coordinates() {
