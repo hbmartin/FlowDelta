@@ -22,6 +22,7 @@ final class ReportExporterTests: XCTestCase {
         XCTAssertTrue(value.contains("flowchart TD"))
         XCTAssertTrue(value.contains("&quot;quoted&quot;"))
         XCTAssertTrue(value.contains(":::affected"))
+        XCTAssertTrue(value.contains("-.->|\"value\"|"))
         XCTAssertTrue(value.contains("classDef added"))
         XCTAssertFalse(value.contains("node:raw"))
     }
@@ -33,7 +34,7 @@ final class ReportExporterTests: XCTestCase {
         XCTAssertTrue(value.contains("## Entity triage"))
         XCTAssertTrue(value.contains("## Control-flow delta"))
         XCTAssertTrue(value.contains("```mermaid"))
-        XCTAssertTrue(value.contains("control context"))
+        XCTAssertTrue(value.contains("control + data context"))
     }
 
     func testTableContainsTriageBeforeFunctionSummary() throws {
@@ -97,13 +98,22 @@ final class ReportExporterTests: XCTestCase {
             old: affected,
             new: affected,
             state: .affected,
-            causality: [CausalityLink(
-                triggerID: entryDelta.id,
-                affectedID: StableID(rawValue: "node:affected"),
-                basis: .control,
-                explanation: "Control context changed."
-            )]
+            causality: [
+                CausalityLink(
+                    triggerID: entryDelta.id,
+                    affectedID: StableID(rawValue: "node:affected"),
+                    basis: .control,
+                    explanation: "Control context changed."
+                ),
+                CausalityLink(
+                    triggerID: entryDelta.id,
+                    affectedID: StableID(rawValue: "node:affected"),
+                    basis: .data,
+                    explanation: "Reaching definition changed."
+                )
+            ]
         )
+        let dataEdge = DataFlowEdge(symbol: "value", definition: entry.id, use: affected.id)
         let function = FunctionFlowDelta(
             id: StableID(rawValue: "function"),
             entityChange: change,
@@ -111,7 +121,12 @@ final class ReportExporterTests: XCTestCase {
             oldGraph: graph,
             newGraph: graph,
             nodes: [entryDelta, affectedDelta],
-            edges: [FlowEdgeDelta(id: StableID(rawValue: "edge-delta"), old: edge, new: edge, state: .retained)]
+            edges: [FlowEdgeDelta(id: StableID(rawValue: "edge-delta"), old: edge, new: edge, state: .retained)],
+            dataFlow: FunctionDataFlowDelta(
+                oldGraph: DataFlowGraph(entityID: entity.id, edges: [dataEdge]),
+                newGraph: DataFlowGraph(entityID: entity.id, edges: [dataEdge]),
+                edges: [DataFlowEdgeDelta(id: dataEdge.id, old: dataEdge, new: dataEdge, state: .retained)]
+            )
         )
         let base = RevisionIdentity("base")
         let target = RevisionIdentity("target")

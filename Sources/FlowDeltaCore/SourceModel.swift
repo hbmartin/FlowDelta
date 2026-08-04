@@ -2,6 +2,31 @@ import Foundation
 
 public enum SourceLanguage: String, Codable, CaseIterable, Sendable {
     case swift
+    case typescript
+    case javascript
+    case python
+    case go
+
+    public init?(path: String) {
+        switch URL(fileURLWithPath: path).pathExtension.lowercased() {
+        case "swift": self = .swift
+        case "ts", "tsx", "mts", "cts": self = .typescript
+        case "js", "jsx", "mjs", "cjs": self = .javascript
+        case "py", "pyi": self = .python
+        case "go": self = .go
+        default: return nil
+        }
+    }
+
+    public var displayName: String {
+        switch self {
+        case .swift: "Swift"
+        case .typescript: "TypeScript"
+        case .javascript: "JavaScript"
+        case .python: "Python"
+        case .go: "Go"
+        }
+    }
 }
 
 public struct SourceLocation: Codable, Hashable, Sendable, Comparable {
@@ -92,7 +117,7 @@ public struct FileComparison: Codable, Hashable, Sendable {
     }
 
     public var language: SourceLanguage {
-        new?.language ?? old?.language ?? .swift
+        new?.language ?? old?.language ?? SourceLanguage(path: path) ?? .swift
     }
 }
 

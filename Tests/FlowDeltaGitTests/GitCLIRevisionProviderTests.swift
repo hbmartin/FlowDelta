@@ -63,6 +63,67 @@ final class GitCLIRevisionProviderTests: XCTestCase {
         }
     }
 
+    func testLoadsEverySupportedM2LanguageAndIgnoresUnsupportedFiles() async throws {
+        let repository = try TemporaryGitRepository()
+        let supported = ["Value.swift", "value.ts", "value.js", "value.py", "value.go"]
+        for path in supported {
+            try repository.write("// base\n", to: path)
+        }
+        try repository.write("base\n", to: "value.txt")
+        try repository.commit("base")
+        for path in supported {
+            try repository.write("// target\n", to: path)
+        }
+        try repository.write("target\n", to: "value.txt")
+        try repository.commit("target")
+
+        let comparison = try await GitCLIRevisionProvider().comparison(
+            repositoryURL: repository.url,
+            base: "HEAD^",
+            target: "HEAD"
+        )
+
+        XCTAssertEqual(Set(comparison.files.map(\.path)), Set(supported))
+        XCTAssertEqual(Set(comparison.files.map(\.language)), Set(SourceLanguage.allCases))
+    }
+
+    func testRejectsNonUTF8SourceBlob() async throws {
+        let repository = try TemporaryGitRepository()
+        try repository.write("func value() {}\n", to: "Value.swift")
+        try repository.commit("base")
+        try repository.write(Data([0xFF, 0xFE]), to: "Value.swift")
+        try repository.commit("target")
+
+        do {
+            _ = try await GitCLIRevisionProvider().comparison(
+                repositoryURL: repository.url,
+                base: "HEAD^",
+                target: "HEAD"
+            )
+            XCTFail("Expected invalid UTF-8 failure")
+        } catch let error as GitRevisionProviderError {
+            XCTAssertEqual(error, .invalidUTF8(context: "Value.swift"))
+        }
+    }
+
+    func testRejectsNonUTF8GitMetadata() async throws {
+        let repository = try TemporaryGitRepository()
+        let executable = repository.url.appendingPathComponent("fake-git")
+        try Data("#!/bin/sh\nprintf '\\377'\n".utf8).write(to: executable, options: .atomic)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+
+        do {
+            _ = try await GitCLIRevisionProvider(executableURL: executable).comparison(
+                repositoryURL: repository.url,
+                base: "HEAD^",
+                target: "HEAD"
+            )
+            XCTFail("Expected invalid UTF-8 failure")
+        } catch let error as GitRevisionProviderError {
+            XCTAssertEqual(error, .invalidUTF8(context: "base revision"))
+        }
+    }
+
     func testEnforcesChangedFileAndBlobLimits() async throws {
         let repository = try TemporaryGitRepository()
         try repository.write("func first() {}\n", to: "First.swift")
@@ -148,9 +209,13 @@ private final class TemporaryGitRepository: @unchecked Sendable {
     deinit { try? FileManager.default.removeItem(at: url) }
 
     func write(_ value: String, to path: String) throws {
+        try write(Data(value.utf8), to: path)
+    }
+
+    func write(_ value: Data, to path: String) throws {
         let file = url.appendingPathComponent(path)
         try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try Data(value.utf8).write(to: file, options: .atomic)
+        try value.write(to: file, options: .atomic)
     }
 
     func move(_ path: String, to destination: String) throws {

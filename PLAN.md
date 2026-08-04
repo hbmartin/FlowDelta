@@ -10,23 +10,25 @@ Given a base revision and target revision, FlowDelta produces:
 
 1. entity triage for added, removed, modified, moved, renamed, and unchanged declarations;
 2. confidence-bearing syntax correspondence and insert/delete/update/move edits;
-3. statement-level control-flow graphs for changed Swift callables;
-4. a matched graph delta with added, removed, retained, modified, and affected nodes;
-5. native AppKit review views and portable table, JSON, Mermaid, and Markdown artifacts.
+3. statement-level control-flow graphs for changed Swift, TypeScript/JavaScript, Python, and Go callables;
+4. Swift and TypeScript/JavaScript def-use deltas plus syntax-derived and optionally index-enriched call graphs;
+5. a matched graph delta with added, removed, retained, modified, and basis-labeled affected nodes;
+6. native AppKit review views and portable table, JSON, Mermaid, and Markdown artifacts.
 
-`affected` is always basis-labeled. M1 supports control context only. Data-flow and call-graph claims do not enter the product until their analyses exist.
+`affected` is always basis-labeled. M2 supports control and data context; call claims retain their syntax or IndexStoreDB provenance.
 
 ## Architecture
 
 | Layer | Target | Responsibility |
 | --- | --- | --- |
 | Input | `FlowDeltaGit` | Pluggable `RevisionProvider`; default shell-free Git process provider |
-| Parse | `FlowDeltaParse` | tree-sitter Swift → normalized package-owned IR |
+| Parse | `FlowDeltaParse` | Exact-pinned tree-sitter grammars → normalized package-owned IR |
 | Triage/match | `FlowDeltaMatch` | entity cascade and GumTree-style syntax mapping |
-| Flow | `FlowDeltaFlow` | bounded Swift statement-level CFG lowering |
-| Delta | `FlowDeltaAnalysis` | revision orchestration, CFG projection, control-context causality |
+| Flow | `FlowDeltaFlow` | bounded statement-level CFG lowering and lexical def-use |
+| Delta | `FlowDeltaAnalysis` | revision orchestration, CFG/data projection, basis-labeled causality, call graph |
 | Layout | `FlowDeltaLayout` | deterministic dominator-anchored ranks and back-edge lanes |
 | Present | `FlowDeltaUI` | AppKit, accessible layer-backed node views, Core Animation, highlighted source |
+| Enrich | `FlowDeltaIndexStore` | Optional IndexStoreDB-backed Swift call resolution |
 | Interop | `FlowDeltaExport`, `flowdelta` | table/JSON/Mermaid/Markdown and CLI |
 
 The pipeline escalates lazily from cheap triage to function analysis. Hard file, blob, syntax, node, and edge limits degrade the affected scope instead of taking down the whole report.
@@ -83,12 +85,14 @@ Evidence: `notes/006-m1-validation.md`.
 
 The human review timing exercise is a follow-up dogfood metric, not a release gate.
 
-### M2 — multi-language, data flow, and GitX
+### M2 — multi-language, data flow, and GitX (package complete; GitX consumer gate pending)
 
 - TypeScript/JavaScript, Python, and Go CFG mappings.
 - Swift and TypeScript/JavaScript def-use deltas, data-context affected state, and backward slices.
 - Call-graph neighborhood and IndexStoreDB enrichment.
 - GitX History Flow tab through exact-pinned package and thin adapter.
+
+Package evidence: `notes/009-m2-validation.md`. GitX integration evidence is maintained in the consuming repository.
 
 ### M3 — depth and polish
 
@@ -103,6 +107,16 @@ The human review timing exercise is a follow-up dogfood metric, not a release ga
 - Pinned SwiftFormat and strict SwiftLint pass.
 - Library line coverage is at least 90%, enforced and ratcheted by `scripts/check_coverage.py`.
 - `0.1.0` is tagged only after the gate is green; consumers exact-pin that tag.
+
+## M2 release gate
+
+- Debug and release suites pass across all five supported languages and the real IndexStoreDB enrichment path.
+- Real Git ingestion covers every supported extension, invalid UTF-8 metadata and blobs, revision failures, rename/add/delete, and limits.
+- Delta, Before / After, Calls, forward-slice, backward-slice, and source synchronization interactions pass native AppKit tests.
+- CLI table, JSON, Mermaid, and Markdown smoke artifacts are generated from real history and structurally checked.
+- The pinned formatter and strict linter pass; library coverage stays above the ratcheted floor.
+- A current native diagnostic still is inspected; no screen recording is required.
+- `0.2.0` is tagged only after the package gate is green; GitX then replaces its local `../FlowDelta` development override with an exact remote pin.
 
 ## Constraints and accepted risks
 

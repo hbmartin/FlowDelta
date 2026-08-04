@@ -21,7 +21,10 @@ struct FunctionDeltaProjection {
                 newToDelta[new.id] = nodeDelta.id
             }
             guard let node = nodeDelta.new ?? nodeDelta.old else { continue }
-            let suffix = nodeDelta.state == .affected ? "\nAffected • control context" : ""
+            let bases = Set(nodeDelta.causality.map(\.basis)).sorted { $0.rawValue < $1.rawValue }
+            let suffix = nodeDelta.state == .affected
+                ? "\nAffected • \(bases.map(\.rawValue).joined(separator: "+")) context"
+                : ""
             projectedNodes.append(FlowNode(
                 id: nodeDelta.id,
                 kind: node.kind,
@@ -46,6 +49,19 @@ struct FunctionDeltaProjection {
                 target: target,
                 kind: edge.kind,
                 label: edge.label
+            ))
+            edgeStates[edgeDelta.id] = edgeDelta.state
+        }
+        for edgeDelta in delta.dataFlow?.edges ?? [] {
+            guard let edge = edgeDelta.new ?? edgeDelta.old else { continue }
+            let mapping = edgeDelta.new == nil ? oldToDelta : newToDelta
+            guard let source = mapping[edge.definition], let target = mapping[edge.use] else { continue }
+            projectedEdges.append(FlowEdge(
+                id: edgeDelta.id,
+                source: source,
+                target: target,
+                kind: .dataDependency,
+                label: edge.symbol
             ))
             edgeStates[edgeDelta.id] = edgeDelta.state
         }
@@ -90,6 +106,17 @@ struct FunctionDeltaProjection {
         while let current = pending.popLast() {
             for edge in graph.outgoing(from: current) where result.insert(edge.target).inserted {
                 pending.append(edge.target)
+            }
+        }
+        return result
+    }
+
+    func backwardSlice(from id: StableID) -> Set<StableID> {
+        var result: Set<StableID> = [id]
+        var pending = [id]
+        while let current = pending.popLast() {
+            for edge in graph.incoming(to: current) where result.insert(edge.source).inserted {
+                pending.append(edge.source)
             }
         }
         return result

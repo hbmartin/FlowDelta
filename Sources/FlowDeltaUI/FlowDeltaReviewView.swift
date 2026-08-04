@@ -13,17 +13,35 @@ public final class FlowDeltaReviewView: NSView, NSTableViewDataSource, NSTableVi
     private let summaryLabel = NSTextField(labelWithString: "No comparison loaded")
     private let mainSplit = NSSplitView()
     private let detailSplit = NSSplitView()
+    private let graphHostSplit = NSSplitView()
     private let tableView = NSTableView()
     private let graphScrollView = NSScrollView()
+    private let comparisonGraphScrollView = NSScrollView()
     private let graphView = FlowGraphView()
+    private let comparisonGraphView = FlowGraphView()
     private let sourceView = FlowSourceView()
     private let functionLabel = NSTextField(labelWithString: "Select a function")
-    private let sliceButton = NSButton(checkboxWithTitle: "Forward Slice", target: nil, action: nil)
+    private let modeControl = NSSegmentedControl(
+        labels: ["Delta", "Before / After", "Calls"],
+        trackingMode: .selectOne,
+        target: nil,
+        action: nil
+    )
+    private let sliceButton = NSButton(checkboxWithTitle: "Slice", target: nil, action: nil)
+    private let sliceDirectionControl = NSSegmentedControl(
+        labels: ["Forward", "Backward"],
+        trackingMode: .selectOne,
+        target: nil,
+        action: nil
+    )
     private let layoutEngine = DominatorAnchoredLayout()
     private var rows: [ReviewRow] = []
+    private var currentReport: RevisionFlowDeltaReport?
+    private var currentFunction: FunctionFlowDelta?
     private var currentProjection: FunctionDeltaProjection?
     private var currentLayout: GraphLayoutResult?
     private var currentFile: FileFlowDelta?
+    private var callNodesByID: [StableID: CallGraphNode] = [:]
 
     override public init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -36,8 +54,10 @@ public final class FlowDeltaReviewView: NSView, NSTableViewDataSource, NSTableVi
     }
 
     public func display(_ report: RevisionFlowDeltaReport) {
+        currentReport = report
         revisionLabel.stringValue = "\(Self.short(report.base.value)) → \(Self.short(report.target.value))"
-        summaryLabel.stringValue = "\(report.files.count) Swift files • \(report.functionDeltas.count) function flow deltas • affected = control context"
+        let languages = Set(report.files.map(\.comparison.language.displayName)).sorted().joined(separator: ", ")
+        summaryLabel.stringValue = "\(report.files.count) files (\(languages)) • \(report.functionDeltas.count) function deltas • affected = control + data context"
         rows = report.files.flatMap { file in
             file.entityChanges.map { change in
                 ReviewRow(
@@ -86,6 +106,26 @@ public final class FlowDeltaReviewView: NSView, NSTableViewDataSource, NSTableVi
         graphView.emphasizedStableIDs
     }
 
+    public var reviewMode: Int {
+        modeControl.selectedSegment
+    }
+
+    public var comparisonGraphNodeCount: Int {
+        comparisonGraphView.renderedNodeCount
+    }
+
+    public var renderedGraphNodeCount: Int {
+        graphView.renderedNodeCount
+    }
+
+    public var renderedGraphNodeStableIDs: [String] {
+        graphView.renderedStableIDs
+    }
+
+    public var comparisonGraphIsVisible: Bool {
+        comparisonGraphScrollView.superview === graphHostSplit
+    }
+
     public var nonCallableTriageRows: [Int] {
         rows.indices.filter { rows[$0].function == nil }
     }
@@ -102,8 +142,21 @@ public final class FlowDeltaReviewView: NSView, NSTableViewDataSource, NSTableVi
     }
 
     public func setForwardSliceEnabled(_ enabled: Bool) {
+        sliceDirectionControl.selectedSegment = 0
         sliceButton.state = enabled ? .on : .off
         updateSliceFocus()
+    }
+
+    public func setBackwardSliceEnabled(_ enabled: Bool) {
+        sliceDirectionControl.selectedSegment = 1
+        sliceButton.state = enabled ? .on : .off
+        updateSliceFocus()
+    }
+
+    public func setReviewMode(_ mode: Int) {
+        guard (0 ... 2).contains(mode) else { return }
+        modeControl.selectedSegment = mode
+        renderCurrentMode(animated: false)
     }
 
     public func numberOfRows(in tableView: NSTableView) -> Int {
@@ -118,7 +171,7 @@ public final class FlowDeltaReviewView: NSView, NSTableViewDataSource, NSTableVi
         guard rows.indices.contains(row), let tableColumn else { return nil }
         let identifier = tableColumn.identifier
         let cell = tableView.makeView(withIdentifier: identifier, owner: self) as? NSTableCellView
-            ?? makeCell(identifier: identifier)
+            ?? ReviewViewComponents.makeCell(identifier: identifier)
         let value: String
         if identifier.rawValue == "change" {
             value = rows[row].change.kind.rawValue.capitalized
@@ -142,18 +195,27 @@ public final class FlowDeltaReviewView: NSView, NSTableViewDataSource, NSTableVi
     }
 
     public func flowGraphView(_ view: FlowGraphView, didSelectNodeWithStableID stableID: String) {
-        guard let currentProjection,
-              let nodeDelta = currentProjection.nodeDeltas[StableID(rawValue: stableID)],
-              let currentFile
-        else { return }
-        let usesTarget = nodeDelta.new != nil
+        let id = StableID(rawValue: stableID)
+        if let callNode = callNodesByID[id] {
+            showSource(for: callNode)
+            return
+        }
+        guard let currentProjection, let currentFile else { return }
+        let nodeDelta = currentProjection.nodeDeltas[id]
+            ?? currentProjection.nodeDeltas.values.first { $0.old?.id == id || $0.new?.id == id }
+        guard let nodeDelta else { return }
+        let usesTarget = view === comparisonGraphView ||
+            (view === graphView && modeControl.selectedSegment != 1 && nodeDelta.new != nil)
         let snapshot = usesTarget ? currentFile.comparison.new : currentFile.comparison.old
         sourceView.display(snapshot, title: usesTarget ? "Target source" : "Base source")
-        sourceView.select((nodeDelta.new ?? nodeDelta.old)?.sourceRanges.first)
+        sourceView.select((usesTarget ? nodeDelta.new : nodeDelta.old)?.sourceRanges.first
+            ?? (nodeDelta.new ?? nodeDelta.old)?.sourceRanges.first)
         Self.logger.debug("Selected flow node \(stableID, privacy: .public) for source synchronization")
         updateSliceFocus()
     }
+}
 
+private extension FlowDeltaReviewView {
     private func configureView() {
         wantsLayer = true
         layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
@@ -259,50 +321,81 @@ public final class FlowDeltaReviewView: NSView, NSTableViewDataSource, NSTableVi
         functionWidth.isActive = true
         detailHeader.addSubview(functionLabel)
 
-        let legend = makeLegend()
+        let legend = ReviewViewComponents.makeLegend()
         legend.translatesAutoresizingMaskIntoConstraints = false
         detailHeader.addSubview(legend)
+
+        modeControl.translatesAutoresizingMaskIntoConstraints = false
+        modeControl.selectedSegment = 0
+        modeControl.segmentStyle = .texturedSquare
+        modeControl.target = self
+        modeControl.action = #selector(reviewModeChanged(_:))
+        modeControl.setAccessibilityLabel("Flow presentation")
+        detailHeader.addSubview(modeControl)
 
         sliceButton.translatesAutoresizingMaskIntoConstraints = false
         sliceButton.bezelStyle = .roundRect
         sliceButton.target = self
-        sliceButton.action = #selector(toggleForwardSlice(_:))
+        sliceButton.action = #selector(toggleSlice(_:))
         detailHeader.addSubview(sliceButton)
+
+        sliceDirectionControl.translatesAutoresizingMaskIntoConstraints = false
+        sliceDirectionControl.selectedSegment = 0
+        sliceDirectionControl.segmentStyle = .texturedSquare
+        sliceDirectionControl.target = self
+        sliceDirectionControl.action = #selector(sliceDirectionChanged(_:))
+        sliceDirectionControl.setAccessibilityLabel("Slice direction")
+        detailHeader.addSubview(sliceDirectionControl)
 
         detailSplit.translatesAutoresizingMaskIntoConstraints = false
         detailSplit.isVertical = true
         detailSplit.dividerStyle = .thin
         container.addSubview(detailSplit)
 
-        graphScrollView.hasVerticalScroller = true
-        graphScrollView.hasHorizontalScroller = true
-        graphScrollView.autohidesScrollers = true
-        graphScrollView.borderType = .noBorder
-        graphScrollView.documentView = graphView
+        configureGraphScrollView(graphScrollView, graph: graphView)
+        configureGraphScrollView(comparisonGraphScrollView, graph: comparisonGraphView)
         graphView.delegate = self
-        detailSplit.addArrangedSubview(graphScrollView)
+        comparisonGraphView.delegate = self
+        graphHostSplit.isVertical = true
+        graphHostSplit.dividerStyle = .thin
+        graphHostSplit.addArrangedSubview(graphScrollView)
+        detailSplit.addArrangedSubview(graphHostSplit)
         detailSplit.addArrangedSubview(sourceView)
         for constraint in [
-            graphScrollView.widthAnchor.constraint(greaterThanOrEqualToConstant: 360),
+            graphHostSplit.widthAnchor.constraint(greaterThanOrEqualToConstant: 360),
             sourceView.widthAnchor.constraint(greaterThanOrEqualToConstant: 360)
         ] {
             constraint.priority = .defaultHigh
             constraint.isActive = true
         }
+        let functionLegendGap = functionLabel.trailingAnchor.constraint(
+            lessThanOrEqualTo: legend.leadingAnchor,
+            constant: -10
+        )
+        functionLegendGap.priority = .defaultHigh
+        functionLegendGap.isActive = true
+        let modeSliceGap = modeControl.trailingAnchor.constraint(
+            lessThanOrEqualTo: sliceButton.leadingAnchor,
+            constant: -8
+        )
+        modeSliceGap.priority = .defaultHigh
+        modeSliceGap.isActive = true
 
         NSLayoutConstraint.activate([
             detailHeader.topAnchor.constraint(equalTo: container.topAnchor),
             detailHeader.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             detailHeader.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            detailHeader.heightAnchor.constraint(equalToConstant: 42),
+            detailHeader.heightAnchor.constraint(equalToConstant: 66),
             functionLabel.leadingAnchor.constraint(equalTo: detailHeader.leadingAnchor, constant: 10),
-            functionLabel.centerYAnchor.constraint(equalTo: detailHeader.centerYAnchor),
-            functionLabel.trailingAnchor.constraint(lessThanOrEqualTo: legend.leadingAnchor, constant: -10),
-            legend.centerXAnchor.constraint(equalTo: detailHeader.centerXAnchor),
-            legend.centerYAnchor.constraint(equalTo: detailHeader.centerYAnchor),
-            legend.trailingAnchor.constraint(lessThanOrEqualTo: sliceButton.leadingAnchor, constant: -10),
-            sliceButton.trailingAnchor.constraint(equalTo: detailHeader.trailingAnchor, constant: -10),
-            sliceButton.centerYAnchor.constraint(equalTo: detailHeader.centerYAnchor),
+            functionLabel.topAnchor.constraint(equalTo: detailHeader.topAnchor, constant: 7),
+            legend.trailingAnchor.constraint(equalTo: detailHeader.trailingAnchor, constant: -10),
+            legend.centerYAnchor.constraint(equalTo: functionLabel.centerYAnchor),
+            modeControl.leadingAnchor.constraint(equalTo: detailHeader.leadingAnchor, constant: 10),
+            modeControl.bottomAnchor.constraint(equalTo: detailHeader.bottomAnchor, constant: -7),
+            sliceButton.centerYAnchor.constraint(equalTo: modeControl.centerYAnchor),
+            sliceButton.trailingAnchor.constraint(equalTo: sliceDirectionControl.leadingAnchor, constant: -5),
+            sliceDirectionControl.trailingAnchor.constraint(equalTo: detailHeader.trailingAnchor, constant: -10),
+            sliceDirectionControl.centerYAnchor.constraint(equalTo: modeControl.centerYAnchor),
             detailSplit.topAnchor.constraint(equalTo: detailHeader.bottomAnchor),
             detailSplit.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             detailSplit.trailingAnchor.constraint(equalTo: container.trailingAnchor),
@@ -313,33 +406,69 @@ public final class FlowDeltaReviewView: NSView, NSTableViewDataSource, NSTableVi
 
     private func show(row: ReviewRow) {
         currentFile = row.file
+        currentFunction = row.function
         guard let function = row.function else {
             functionLabel.stringValue = (row.change.new ?? row.change.old)?.qualifiedName ?? "Entity"
-            let placeholderID = StableID(namespace: "review-placeholder", components: [functionLabel.stringValue])
-            let placeholder = FlowNode(
-                id: placeholderID,
-                kind: .basicBlock,
-                label: "No callable flow graph",
-                sourceOrder: 0
-            )
-            let graph = ControlFlowGraph(
-                entityID: placeholderID,
-                nodes: [placeholder],
-                edges: [],
-                entryID: placeholderID,
-                exitID: placeholderID,
-                errorExitID: placeholderID
-            )
-            let layout = layoutEngine.layout(graph: graph)
-            graphView.display(graph: graph, layout: layout)
+            displayPlaceholder("No callable flow graph")
             currentProjection = nil
-            currentLayout = layout
             sourceView.display(row.file.comparison.new ?? row.file.comparison.old, title: "Source")
             return
         }
         let classifications = function.classifications.map(\.reviewLabel).joined(separator: ", ")
         functionLabel.stringValue = function.displayName
             + (classifications.isEmpty ? "" : " — \(classifications)")
+        renderCurrentMode(animated: currentProjection != nil)
+        sourceView.display(row.file.comparison.new ?? row.file.comparison.old, title: "Target source")
+        sliceButton.state = .off
+        updateSliceFocus()
+    }
+
+    @objc private func reviewModeChanged(_ sender: NSSegmentedControl) {
+        renderCurrentMode(animated: false)
+    }
+
+    @objc private func toggleSlice(_ sender: NSButton) {
+        updateSliceFocus()
+    }
+
+    @objc private func sliceDirectionChanged(_ sender: NSSegmentedControl) {
+        updateSliceFocus()
+    }
+
+    private func updateSliceFocus() {
+        guard modeControl.selectedSegment == 0,
+              sliceButton.state == .on,
+              let selected = graphView.selectedStableID,
+              let currentProjection
+        else {
+            graphView.emphasizeNodes(withStableIDs: nil)
+            comparisonGraphView.emphasizeNodes(withStableIDs: nil)
+            return
+        }
+        let id = StableID(rawValue: selected)
+        let slice = sliceDirectionControl.selectedSegment == 1
+            ? currentProjection.backwardSlice(from: id)
+            : currentProjection.forwardSlice(from: id)
+        graphView.emphasizeNodes(withStableIDs: Set(slice.map(\.rawValue)))
+    }
+
+    private func renderCurrentMode(animated: Bool) {
+        guard let function = currentFunction else { return }
+        callNodesByID = [:]
+        sliceButton.isEnabled = modeControl.selectedSegment == 0
+        sliceDirectionControl.isEnabled = modeControl.selectedSegment == 0
+        switch modeControl.selectedSegment {
+        case 1:
+            renderJuxtaposed(function)
+        case 2:
+            renderCallGraph(for: function)
+        default:
+            renderDelta(function, animated: animated)
+        }
+    }
+
+    private func renderDelta(_ function: FunctionFlowDelta, animated: Bool) {
+        setComparisonGraphVisible(false)
         let projection = FunctionDeltaProjection(function)
         let anchors = currentLayout.map { layout in
             Dictionary(uniqueKeysWithValues: layout.nodeFrames.map { (
@@ -354,60 +483,155 @@ public final class FlowDeltaReviewView: NSView, NSTableViewDataSource, NSTableVi
             layout: layout,
             nodeStates: projection.states,
             edgeStates: projection.edgeStates,
-            animated: currentProjection != nil
+            animated: animated
         )
         currentProjection = projection
         currentLayout = layout
         Self.logger.debug(
-            "Rendered \(function.displayName, privacy: .public) with \(projection.graph.nodes.count) projected nodes"
+            "Rendered \(function.displayName, privacy: .public) delta with \(projection.graph.nodes.count) projected nodes"
         )
-        sourceView.display(row.file.comparison.new ?? row.file.comparison.old, title: "Target source")
-        sliceButton.state = .off
-        updateSliceFocus()
     }
 
-    @objc private func toggleForwardSlice(_ sender: NSButton) {
-        updateSliceFocus()
+    private func renderJuxtaposed(_ function: FunctionFlowDelta) {
+        setComparisonGraphVisible(true)
+        currentProjection = FunctionDeltaProjection(function)
+        let oldStates = Dictionary(uniqueKeysWithValues: function.nodes.compactMap { delta in
+            delta.old.map { ($0.id, delta.state) }
+        })
+        let newStates = Dictionary(uniqueKeysWithValues: function.nodes.compactMap { delta in
+            delta.new.map { ($0.id, delta.state) }
+        })
+        if let old = function.oldGraph {
+            display(old, in: graphView, states: oldStates)
+        } else {
+            displayPlaceholder("Added function", in: graphView)
+        }
+        if let new = function.newGraph {
+            display(new, in: comparisonGraphView, states: newStates)
+        } else {
+            displayPlaceholder("Removed function", in: comparisonGraphView)
+        }
+        currentLayout = nil
+        Self.logger.debug("Rendered juxtaposed graphs for \(function.displayName, privacy: .public)")
     }
 
-    private func updateSliceFocus() {
-        guard sliceButton.state == .on,
-              let selected = graphView.selectedStableID,
-              let currentProjection
-        else {
-            graphView.emphasizeNodes(withStableIDs: nil)
+    private func renderCallGraph(for function: FunctionFlowDelta) {
+        setComparisonGraphVisible(false)
+        currentProjection = FunctionDeltaProjection(function)
+        guard let callGraph = currentReport?.callGraph else {
+            displayPlaceholder("No call graph available")
             return
         }
-        let slice = currentProjection.forwardSlice(from: StableID(rawValue: selected))
-        graphView.emphasizeNodes(withStableIDs: Set(slice.map(\.rawValue)))
+        let roots = Set(callGraph.nodes.compactMap { node in
+            node.path == function.path && node.name == function.displayName ? node.id : nil
+        })
+        let neighborhood = callGraph.neighborhood(around: roots, radius: 1)
+        let projection = project(neighborhood)
+        callNodesByID = Dictionary(uniqueKeysWithValues: neighborhood.nodes.map { ($0.id, $0) })
+        display(projection.graph, in: graphView, states: projection.states, edgeStates: projection.edgeStates)
+        currentLayout = nil
+        Self.logger.debug(
+            "Rendered call neighborhood for \(function.displayName, privacy: .public): \(neighborhood.nodes.count) nodes"
+        )
     }
 
-    private func makeCell(identifier: NSUserInterfaceItemIdentifier) -> NSTableCellView {
-        let cell = NSTableCellView()
-        cell.identifier = identifier
-        let field = NSTextField(labelWithString: "")
-        field.translatesAutoresizingMaskIntoConstraints = false
-        field.lineBreakMode = .byTruncatingTail
-        cell.textField = field
-        cell.addSubview(field)
-        NSLayoutConstraint.activate([
-            field.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 4),
-            field.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -4),
-            field.centerYAnchor.constraint(equalTo: cell.centerYAnchor)
-        ])
-        return cell
+    private func project(_ callGraph: CallGraph) -> (
+        graph: ControlFlowGraph,
+        states: [StableID: DeltaState],
+        edgeStates: [StableID: DeltaState]
+    ) {
+        guard !callGraph.nodes.isEmpty else {
+            let graph = placeholderGraph("No calls in the selected neighborhood")
+            return (graph, [:], [:])
+        }
+        let nodes = callGraph.nodes.enumerated().map { index, node in
+            FlowNode(
+                id: node.id,
+                kind: .basicBlock,
+                label: node.external ? "External • \(node.name)" : node.name,
+                sourceRanges: node.range.map { [$0] } ?? [],
+                sourceOrder: index
+            )
+        }
+        let edges = callGraph.edges.map { edge in
+            FlowEdge(id: edge.id, source: edge.caller, target: edge.callee, kind: .fallthrough, label: "calls")
+        }
+        let first = nodes[0].id
+        return (
+            ControlFlowGraph(
+                entityID: StableID(namespace: "call-neighborhood", components: nodes.map(\.id.rawValue)),
+                nodes: nodes,
+                edges: edges,
+                entryID: first,
+                exitID: first,
+                errorExitID: first
+            ),
+            Dictionary(uniqueKeysWithValues: callGraph.nodes.map { ($0.id, $0.state) }),
+            Dictionary(uniqueKeysWithValues: callGraph.edges.map { ($0.id, $0.state) })
+        )
     }
 
-    private func makeLegend() -> NSStackView {
-        let stack = NSStackView(views: [
-            LegendItem(title: "Added", color: NSColor(calibratedRed: 0.42, green: 0.68, blue: 0.35, alpha: 1)),
-            LegendItem(title: "Removed", color: NSColor(calibratedRed: 0.76, green: 0.32, blue: 0.27, alpha: 1)),
-            LegendItem(title: "Modified", color: NSColor(calibratedRed: 0.80, green: 0.62, blue: 0.17, alpha: 1)),
-            LegendItem(title: "Affected", color: NSColor(calibratedRed: 0.46, green: 0.33, blue: 0.63, alpha: 1))
-        ])
-        stack.orientation = .horizontal
-        stack.spacing = 10
-        return stack
+    private func display(
+        _ graph: ControlFlowGraph,
+        in view: FlowGraphView,
+        states: [StableID: DeltaState] = [:],
+        edgeStates: [StableID: DeltaState] = [:]
+    ) {
+        view.selectNode(withStableID: nil)
+        view.display(
+            graph: graph,
+            layout: layoutEngine.layout(graph: graph),
+            nodeStates: states,
+            edgeStates: edgeStates
+        )
+    }
+
+    private func displayPlaceholder(_ message: String) {
+        setComparisonGraphVisible(false)
+        displayPlaceholder(message, in: graphView)
+        currentLayout = nil
+    }
+
+    private func displayPlaceholder(_ message: String, in view: FlowGraphView) {
+        display(placeholderGraph(message), in: view)
+    }
+
+    private func placeholderGraph(_ message: String) -> ControlFlowGraph {
+        let id = StableID(namespace: "review-placeholder", components: [message])
+        let node = FlowNode(id: id, kind: .basicBlock, label: message, sourceOrder: 0)
+        return ControlFlowGraph(
+            entityID: id,
+            nodes: [node],
+            edges: [],
+            entryID: id,
+            exitID: id,
+            errorExitID: id
+        )
+    }
+
+    private func configureGraphScrollView(_ scrollView: NSScrollView, graph: FlowGraphView) {
+        scrollView.hasVerticalScroller = true
+        scrollView.hasHorizontalScroller = true
+        scrollView.autohidesScrollers = true
+        scrollView.borderType = .noBorder
+        scrollView.documentView = graph
+    }
+
+    private func setComparisonGraphVisible(_ visible: Bool) {
+        if visible, comparisonGraphScrollView.superview == nil {
+            graphHostSplit.addArrangedSubview(comparisonGraphScrollView)
+        } else if !visible, comparisonGraphScrollView.superview === graphHostSplit {
+            comparisonGraphScrollView.removeFromSuperview()
+        }
+    }
+
+    private func showSource(for callNode: CallGraphNode) {
+        guard let path = callNode.path,
+              let file = currentReport?.files.first(where: { $0.path == path })
+        else { return }
+        let snapshot = file.comparison.new ?? file.comparison.old
+        sourceView.display(snapshot, title: "Call source")
+        sourceView.select(callNode.range)
     }
 
     private static func short(_ revision: String) -> String {
@@ -422,70 +646,5 @@ public final class FlowDeltaReviewView: NSView, NSTableViewDataSource, NSTableVi
         case .moved, .renamed: .systemPurple
         case .unchanged: .secondaryLabelColor
         }
-    }
-}
-
-private struct ReviewRow {
-    let file: FileFlowDelta
-    let change: EntityChange
-    let function: FunctionFlowDelta?
-}
-
-private extension FlowChangeClassification {
-    var reviewLabel: String {
-        switch self {
-        case .guardInserted: "guard inserted"
-        case .conditionChanged: "condition changed"
-        case .earlyReturnAdded: "early return added"
-        case .branchAdded: "branch added"
-        case .branchRemoved: "branch removed"
-        case .loopChanged: "loop changed"
-        case .errorPathAdded: "error path added"
-        }
-    }
-}
-
-@MainActor
-private final class SnowLeopardHeaderView: NSView {
-    override func draw(_ dirtyRect: NSRect) {
-        let colors = [
-            NSColor(calibratedWhite: 0.96, alpha: 1),
-            NSColor(calibratedWhite: 0.79, alpha: 1)
-        ]
-        NSGradient(colors: colors)?.draw(in: bounds, angle: -90)
-        NSColor(calibratedWhite: 0.62, alpha: 1).setFill()
-        NSBezierPath(rect: NSRect(x: bounds.minX, y: bounds.minY, width: bounds.width, height: 1)).fill()
-    }
-}
-
-@MainActor
-private final class LegendItem: NSView {
-    init(title: String, color: NSColor) {
-        super.init(frame: .zero)
-        let swatch = NSView()
-        swatch.translatesAutoresizingMaskIntoConstraints = false
-        swatch.wantsLayer = true
-        swatch.layer?.backgroundColor = color.cgColor
-        swatch.layer?.cornerRadius = 4
-        let label = NSTextField(labelWithString: title)
-        label.translatesAutoresizingMaskIntoConstraints = false
-        label.font = NSFont.systemFont(ofSize: 10)
-        label.textColor = .secondaryLabelColor
-        addSubview(swatch)
-        addSubview(label)
-        NSLayoutConstraint.activate([
-            swatch.leadingAnchor.constraint(equalTo: leadingAnchor),
-            swatch.centerYAnchor.constraint(equalTo: centerYAnchor),
-            swatch.widthAnchor.constraint(equalToConstant: 8),
-            swatch.heightAnchor.constraint(equalToConstant: 8),
-            label.leadingAnchor.constraint(equalTo: swatch.trailingAnchor, constant: 4),
-            label.trailingAnchor.constraint(equalTo: trailingAnchor),
-            label.topAnchor.constraint(equalTo: topAnchor),
-            label.bottomAnchor.constraint(equalTo: bottomAnchor)
-        ])
-    }
-
-    required init?(coder: NSCoder) {
-        nil
     }
 }

@@ -10,6 +10,7 @@ public enum DeltaState: String, Codable, CaseIterable, Sendable {
 
 public enum AffectedBasis: String, Codable, CaseIterable, Sendable {
     case control
+    case data
 }
 
 public enum FlowChangeClassification: String, Codable, CaseIterable, Sendable {
@@ -83,6 +84,7 @@ public struct FunctionFlowDelta: Codable, Hashable, Sendable, Identifiable {
     public let newGraph: ControlFlowGraph?
     public let nodes: [FlowNodeDelta]
     public let edges: [FlowEdgeDelta]
+    public let dataFlow: FunctionDataFlowDelta?
     public let classifications: [FlowChangeClassification]
 
     public init(
@@ -93,6 +95,7 @@ public struct FunctionFlowDelta: Codable, Hashable, Sendable, Identifiable {
         newGraph: ControlFlowGraph?,
         nodes: [FlowNodeDelta],
         edges: [FlowEdgeDelta],
+        dataFlow: FunctionDataFlowDelta? = nil,
         classifications: [FlowChangeClassification] = []
     ) {
         self.id = id
@@ -102,11 +105,12 @@ public struct FunctionFlowDelta: Codable, Hashable, Sendable, Identifiable {
         self.newGraph = newGraph
         self.nodes = nodes.sorted { $0.id < $1.id }
         self.edges = edges.sorted { $0.id < $1.id }
+        self.dataFlow = dataFlow
         self.classifications = Array(Set(classifications)).sorted { $0.rawValue < $1.rawValue }
     }
 
     public func forwardSlice(from nodeID: StableID) -> Set<StableID> {
-        let availableEdges = edges.compactMap { $0.new ?? $0.old }
+        let availableEdges = projectedDependencies()
         var result: Set<StableID> = [nodeID]
         var pending = [nodeID]
         while let current = pending.popLast() {
@@ -117,5 +121,47 @@ public struct FunctionFlowDelta: Codable, Hashable, Sendable, Identifiable {
             }
         }
         return result
+    }
+
+    public func backwardSlice(from nodeID: StableID) -> Set<StableID> {
+        let availableEdges = projectedDependencies()
+        var result: Set<StableID> = [nodeID]
+        var pending = [nodeID]
+        while let current = pending.popLast() {
+            for previous in availableEdges where previous.target == current {
+                if result.insert(previous.source).inserted {
+                    pending.append(previous.source)
+                }
+            }
+        }
+        return result
+    }
+
+    private func projectedDependencies() -> [(source: StableID, target: StableID)] {
+        if nodes.isEmpty {
+            return edges.compactMap { delta in
+                guard let edge = delta.new ?? delta.old else { return nil }
+                return (edge.source, edge.target)
+            }
+        }
+        let oldToDelta = Dictionary(uniqueKeysWithValues: nodes.compactMap { node in
+            node.old.map { ($0.id, node.id) }
+        })
+        let newToDelta = Dictionary(uniqueKeysWithValues: nodes.compactMap { node in
+            node.new.map { ($0.id, node.id) }
+        })
+        var dependencies: [(source: StableID, target: StableID)] = edges.compactMap { delta in
+            guard let edge = delta.new ?? delta.old else { return nil }
+            let mapping = delta.new == nil ? oldToDelta : newToDelta
+            guard let source = mapping[edge.source], let target = mapping[edge.target] else { return nil }
+            return (source, target)
+        }
+        dependencies += (dataFlow?.edges ?? []).compactMap { delta in
+            guard let edge = delta.new ?? delta.old else { return nil }
+            let mapping = delta.new == nil ? oldToDelta : newToDelta
+            guard let source = mapping[edge.definition], let target = mapping[edge.use] else { return nil }
+            return (source, target)
+        }
+        return dependencies
     }
 }

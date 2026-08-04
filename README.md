@@ -1,8 +1,8 @@
 # FlowDelta
 
-FlowDelta is a deterministic Swift library and CLI for explaining how a Git change alters program control flow. It parses Swift into a normalized syntax tree, matches declarations and syntax across revisions, constructs statement-level control-flow graphs, computes one matched graph delta, and renders the result with native AppKit.
+FlowDelta is a deterministic Swift library and CLI for explaining how a Git change alters program control and data flow. It parses Swift, TypeScript/JavaScript, Python, and Go into normalized syntax trees; matches declarations and syntax across revisions; constructs statement-level control-flow graphs; and renders matched graph deltas with native AppKit.
 
-The first release is intentionally Swift-only. Multi-language parsing, data-flow analysis, call graphs, and the GitX History integration are later milestones.
+Swift and TypeScript/JavaScript also include lexical intraprocedural def-use deltas, explicitly basis-labeled data-context impact, and backward slicing. Source-derived call neighborhoods are always available and can be enriched with IndexStoreDB for Swift.
 
 ## Quick start
 
@@ -18,17 +18,18 @@ The default CLI output is an entity triage table followed by per-function flow s
 ## Libraries
 
 - `FlowDeltaCore`: source, entity, syntax, CFG, delta, diagnostic, and report values.
-- `FlowDeltaAnalysis`: Swift analysis and matched revision delta.
+- `FlowDeltaAnalysis`: multi-language analysis, matched revision deltas, data causality, and source-derived call graphs.
 - `FlowDeltaGit`: pluggable revision input with the default safe Git process provider.
 - `FlowDeltaLayout`: deterministic CFG layout and staged transition values.
 - `FlowDeltaUI`: AppKit graph/review/source views; no SwiftUI or WebKit.
 - `FlowDeltaExport`: table, JSON, Mermaid, and Markdown rendering.
+- `FlowDeltaIndexStore`: optional precise Swift call-edge enrichment from an existing IndexStoreDB index.
 
 `FDFlowDeltaReviewView`, `FDFlowGraphView`, and `FDFlowSourceView` have Objective-C runtime names for thin host adapters. Package model APIs remain Swift-native.
 
 ## Trust and limits
 
-Matching confidence is part of the model and exports. Nodes labeled `affected` in the Swift MVP mean **control context** only and carry a causality link to the changed condition. FlowDelta does not claim data-flow impact until the data-flow milestone.
+Matching confidence is part of the model and exports. Nodes labeled `affected` carry causality links whose basis is explicitly `control`, `data`, or both. Data-flow claims are limited to Swift and TypeScript/JavaScript in M2; Python and Go remain control-flow only.
 
 Analysis has hard changed-file, blob, syntax-node, flow-node, and flow-edge limits. A file or function can degrade to diagnostics while the remainder of the report stays usable.
 
@@ -44,6 +45,8 @@ scripts/run_pinned_tool.sh swiftlint lint --strict
 ```
 
 Coverage is enforced from an Xcode result bundle with `scripts/check_coverage.py <result.xcresult>` and ratcheted with `--record-improvements`.
+
+IndexStoreDB enrichment is optional and degrades to source-derived call edges. Configure an existing Swift index with `FLOWDELTA_INDEXSTORE_PATH`, a writable `FLOWDELTA_INDEXDATABASE_PATH`, and the active toolchain's `FLOWDELTA_LIBINDEXSTORE_PATH`.
 
 ## Requirements
 

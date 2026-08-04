@@ -3,6 +3,38 @@ import Foundation
 import XCTest
 
 final class CoreModelTests: XCTestCase {
+    func testSourceLanguageRecognizesM2Extensions() {
+        XCTAssertEqual(SourceLanguage(path: "Sources/App.swift"), .swift)
+        XCTAssertEqual(SourceLanguage(path: "web/component.tsx"), .typescript)
+        XCTAssertEqual(SourceLanguage(path: "web/worker.mjs"), .javascript)
+        XCTAssertEqual(SourceLanguage(path: "tools/check.pyi"), .python)
+        XCTAssertEqual(SourceLanguage(path: "cmd/server.go"), .go)
+        XCTAssertNil(SourceLanguage(path: "README.md"))
+    }
+
+    func testCallGraphNeighborhoodIsRadiusLimitedInBothDirections() {
+        let caller = StableID(rawValue: "caller")
+        let root = StableID(rawValue: "root")
+        let callee = StableID(rawValue: "callee")
+        let distant = StableID(rawValue: "distant")
+        let graph = CallGraph(
+            nodes: [caller, root, callee, distant].map {
+                CallGraphNode(id: $0, name: $0.rawValue, state: .retained)
+            },
+            edges: [
+                CallGraphEdge(caller: caller, callee: root, state: .retained),
+                CallGraphEdge(caller: root, callee: callee, state: .added),
+                CallGraphEdge(caller: callee, callee: distant, state: .retained)
+            ]
+        )
+
+        let neighborhood = graph.neighborhood(around: [root], radius: 1)
+
+        XCTAssertEqual(Set(neighborhood.nodes.map(\.id)), [caller, root, callee])
+        XCTAssertEqual(neighborhood.edges.count, 2)
+        XCTAssertFalse(neighborhood.nodes.contains { $0.id == distant })
+    }
+
     func testStableIDIsDeterministicAndNamespaced() {
         let first = StableID(namespace: "entity", components: ["a.swift", "f(_:)"])
         let second = StableID(namespace: "entity", components: ["a.swift", "f(_:)"])

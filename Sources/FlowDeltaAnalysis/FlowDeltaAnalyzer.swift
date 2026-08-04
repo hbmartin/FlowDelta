@@ -5,16 +5,18 @@ import OSLog
 
 public struct FlowDeltaAnalyzer: Sendable {
     private static let logger = Logger(subsystem: "com.hbmartin.FlowDelta", category: "RevisionAnalysis")
-    private let sourceAnalyzer: SwiftSourceAnalyzer
+    private let sourceAnalyzer: SourceAnalyzer
     private let entityMatcher: EntityMatcher
     private let syntaxMatcher: GumTreeMatcher
     private let graphDeltaBuilder: MatchedFlowDeltaBuilder
+    private let callGraphBuilder: CallGraphBuilder
 
     public init() {
-        sourceAnalyzer = SwiftSourceAnalyzer()
+        sourceAnalyzer = SourceAnalyzer()
         entityMatcher = EntityMatcher()
         syntaxMatcher = GumTreeMatcher()
         graphDeltaBuilder = MatchedFlowDeltaBuilder()
+        callGraphBuilder = CallGraphBuilder()
     }
 
     public func analyze(
@@ -24,8 +26,8 @@ public struct FlowDeltaAnalyzer: Sendable {
         var analyzedFiles: [AnalyzedFile] = []
         var oldEntities: [SourceEntity] = []
         var newEntities: [SourceEntity] = []
-        var oldAnalyses: [String: SwiftFileAnalysis] = [:]
-        var newAnalyses: [String: SwiftFileAnalysis] = [:]
+        var oldAnalyses: [String: SourceFileAnalysis] = [:]
+        var newAnalyses: [String: SourceFileAnalysis] = [:]
         for file in comparison.files {
             let (oldAnalysis, oldDiagnostics) = analyze(file.old, limits: limits)
             let (newAnalysis, newDiagnostics) = analyze(file.new, limits: limits)
@@ -68,6 +70,8 @@ public struct FlowDeltaAnalyzer: Sendable {
             {
                 let oldGraph = change.old.flatMap { old in oldAnalyses[old.path]?.graphs[old.id] }
                 let newGraph = change.new.flatMap { new in newAnalyses[new.path]?.graphs[new.id] }
+                let oldDataGraph = change.old.flatMap { old in oldAnalyses[old.path]?.dataGraphs[old.id] }
+                let newDataGraph = change.new.flatMap { new in newAnalyses[new.path]?.dataGraphs[new.id] }
                 guard oldGraph != nil || newGraph != nil else {
                     diagnostics.append(AnalysisDiagnostic(
                         severity: .warning,
@@ -87,7 +91,9 @@ public struct FlowDeltaAnalyzer: Sendable {
                     entityChange: change,
                     editScript: editScript,
                     oldGraph: oldGraph,
-                    newGraph: newGraph
+                    newGraph: newGraph,
+                    oldDataGraph: oldDataGraph,
+                    newDataGraph: newDataGraph
                 ))
             }
             files.append(FileFlowDelta(
@@ -102,6 +108,7 @@ public struct FlowDeltaAnalyzer: Sendable {
             base: comparison.base,
             target: comparison.target,
             files: files,
+            callGraph: callGraphBuilder.build(from: triage.changes),
             diagnostics: reportDiagnostics
         )
         Self.logger.notice(
@@ -113,7 +120,7 @@ public struct FlowDeltaAnalyzer: Sendable {
     private func analyze(
         _ snapshot: SourceSnapshot?,
         limits: AnalysisLimits
-    ) -> (SwiftFileAnalysis?, [AnalysisDiagnostic]) {
+    ) -> (SourceFileAnalysis?, [AnalysisDiagnostic]) {
         guard let snapshot else { return (nil, []) }
         do {
             let analysis = try sourceAnalyzer.analyze(snapshot, limits: limits)
