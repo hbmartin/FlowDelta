@@ -23,3 +23,9 @@ Version 0.2.0 remains an immutable record of the failed external-resolution atte
 - A clean executable consumer resolved FlowDelta through `file:///Volumes/ExtStor/FlowDelta` at exact version 0.2.1 and built successfully, exercising SwiftPM's semantic-package validation path rather than a local path dependency.
 
 The remaining release gate is the real GitX resolution against the pushed exact 0.2.1 tag.
+
+## GitX workspace compatibility follow-up
+
+After GitX's checked-in Sparkle submodule was initialized, the full workspace graph exposed a second consumer constraint: Sparkle requires `swift-argument-parser` from 0.4.3 up to 1.0, while FlowDelta 0.2.1 required exact 1.8.2. FlowDelta's CLI uses API available in the compatible pre-1.0 line, so its manifest now accepts the same 0.4.3-up-to-1.0 range. The complete FlowDelta suite, CLI smoke tests, and GitX workspace resolution must pass before publishing corrected patch release 0.2.2.
+
+FlowDelta resolved ArgumentParser 0.5.0. Because that line predates `AsyncParsableCommand`, the CLI now bridges its existing asynchronous revision provider through a condition-backed result while retaining `ParsableCommand` compatibility. All 66 debug and 66 release tests passed, the standalone release CLI built, and a real markdown report was generated for `39d96d2..b5bdacf`. Xcode coverage remained 94.03% across 37 library files and passed the checked-in ratchet. Pinned SwiftFormat and strict SwiftLint passed for the affected files.

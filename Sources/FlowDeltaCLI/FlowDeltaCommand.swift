@@ -1,4 +1,4 @@
-import ArgumentParser
+@preconcurrency import ArgumentParser
 import FlowDeltaAnalysis
 import FlowDeltaCore
 import FlowDeltaExport
@@ -6,11 +6,11 @@ import FlowDeltaGit
 import Foundation
 
 @main
-struct FlowDeltaCommand: AsyncParsableCommand {
+struct FlowDeltaCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "flowdelta",
         abstract: "Explain how two Git revisions change source control and data flow.",
-        version: "0.2.1"
+        version: "0.2.2"
     )
 
     @Option(name: [.customShort("C"), .long], help: "Path to the Git repository.")
@@ -28,14 +28,24 @@ struct FlowDeltaCommand: AsyncParsableCommand {
     @Argument(help: "Target commit-ish (default: HEAD).")
     var target = "HEAD"
 
-    mutating func run() async throws {
+    mutating func run() throws {
         let repositoryURL = URL(fileURLWithPath: repository, isDirectory: true).standardizedFileURL
-        let comparison = try await GitCLIRevisionProvider().comparison(
-            repositoryURL: repositoryURL,
-            base: base,
-            target: target
-        )
-        let report = try FlowDeltaAnalyzer().analyze(comparison)
+        let baseRevision = base
+        let targetRevision = target
+        let result = BlockingResult<RevisionFlowDeltaReport>()
+        Task.detached {
+            do {
+                let comparison = try await GitCLIRevisionProvider().comparison(
+                    repositoryURL: repositoryURL,
+                    base: baseRevision,
+                    target: targetRevision
+                )
+                try result.complete(.success(FlowDeltaAnalyzer().analyze(comparison)))
+            } catch {
+                result.complete(.failure(error))
+            }
+        }
+        let report = try result.wait()
         let rendered = try FlowDeltaReportExporter().render(report, format: format.exportFormat)
         let data = Data(rendered.utf8)
         if let output {
@@ -43,6 +53,29 @@ struct FlowDeltaCommand: AsyncParsableCommand {
             try data.write(to: outputURL, options: .atomic)
         } else {
             FileHandle.standardOutput.write(data)
+        }
+    }
+}
+
+private final class BlockingResult<Value>: @unchecked Sendable {
+    private let condition = NSCondition()
+    private var result: Result<Value, any Error>?
+
+    func complete(_ result: Result<Value, any Error>) {
+        condition.lock()
+        self.result = result
+        condition.broadcast()
+        condition.unlock()
+    }
+
+    func wait() throws -> Value {
+        condition.lock()
+        while true {
+            if let result {
+                condition.unlock()
+                return try result.get()
+            }
+            condition.wait()
         }
     }
 }

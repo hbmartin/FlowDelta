@@ -29,7 +29,8 @@ let package = Package(
         .package(url: "https://github.com/tree-sitter/tree-sitter-typescript.git", exact: "0.23.2"),
         .package(url: "https://github.com/tree-sitter/tree-sitter-python.git", exact: "0.23.6"),
         .package(url: "https://github.com/tree-sitter/tree-sitter-go.git", exact: "0.23.4"),
-        .package(url: "https://github.com/apple/swift-argument-parser.git", exact: "1.8.2"),
+        // GitX's pinned Sparkle project still shares ArgumentParser's pre-1.0 graph.
+        .package(url: "https://github.com/apple/swift-argument-parser.git", .upToNextMajor(from: "0.4.3")),
         .package(url: "https://github.com/hbmartin/HighlightKit.git", exact: "0.3.0"),
         .package(url: "https://github.com/pointfreeco/swift-snapshot-testing.git", exact: "1.19.4")
     ],
