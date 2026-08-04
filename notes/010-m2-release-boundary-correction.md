@@ -20,5 +20,6 @@ Version 0.2.0 remains an immutable record of the failed external-resolution atte
 - The separate extension debug and release suites each passed all 3 tests, including compilation of a real Swift index and IndexStoreDB call-edge enrichment.
 - Root Xcode coverage passed all 66 tests at 94.03% across 37 library files; the existing ratchet remains satisfied.
 - Pinned SwiftFormat and strict SwiftLint passed across root and extension sources with zero violations.
+- A clean executable consumer resolved FlowDelta through `file:///Volumes/ExtStor/FlowDelta` at exact version 0.2.1 and built successfully, exercising SwiftPM's semantic-package validation path rather than a local path dependency.
 
-The remaining pre-push gate is resolving and building a clean consumer against the final local 0.2.1 semantic tag, followed by the real GitX exact-pin resolution.
+The remaining release gate is the real GitX resolution against the pushed exact 0.2.1 tag.
