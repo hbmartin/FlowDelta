@@ -1,0 +1,162 @@
+[
+  {
+    "id": "swift-syntax-01",
+    "repository": "https://github.com/swiftlang/swift-syntax",
+    "commit": "39d18d4b9960adf8bf01026a5471c98d62fa3f64",
+    "path": "Sources/SwiftLexicalLookup/Scopes/ScopeImplementations.swift",
+    "symbol": "ProtocolDeclSyntax.lookup(_:at:with:)",
+    "expectation": "modified/exactName; condition and branch bodies exchanged"
+  },
+  {
+    "id": "swift-syntax-02",
+    "repository": "https://github.com/swiftlang/swift-syntax",
+    "commit": "5654fcb6cdae10454b16100ebde315a89396040b",
+    "path": "Sources/SwiftParser/IncrementalParseTransition.swift",
+    "symbol": "IncrementalParseTransition.init(previousTree:lookaheadRanges:edits:reusedNodeCallback:)",
+    "expectation": "modified/exactName; threshold initialized"
+  },
+  {
+    "id": "swift-syntax-03",
+    "repository": "https://github.com/swiftlang/swift-syntax",
+    "commit": "5654fcb6cdae10454b16100ebde315a89396040b",
+    "path": "Sources/SwiftParser/IncrementalParseTransition.swift",
+    "symbol": "IncrementalParseTransition.init(previousIncrementalParseResult:edits:reusedNodeCallback:compactArenaThreshold:)",
+    "expectation": "modified/fuzzyTokens; signature gains threshold parameter"
+  },
+  {
+    "id": "swift-syntax-04",
+    "repository": "https://github.com/swiftlang/swift-syntax",
+    "commit": "5654fcb6cdae10454b16100ebde315a89396040b",
+    "path": "Sources/SwiftParser/ParseSourceFile.swift",
+    "symbol": "Parser.parseIncrementally(source:parseTransition:)",
+    "expectation": "modified/exactName; guard-like transition compaction added"
+  },
+  {
+    "id": "swift-syntax-05",
+    "repository": "https://github.com/swiftlang/swift-syntax",
+    "commit": "5654fcb6cdae10454b16100ebde315a89396040b",
+    "path": "Sources/SwiftParser/ParseSourceFile.swift",
+    "symbol": "Parser.parseIncrementally(source:maximumNestingLevel:parseTransition:)",
+    "expectation": "modified/exactName; transition compaction added"
+  },
+  {
+    "id": "swift-syntax-06",
+    "repository": "https://github.com/swiftlang/swift-syntax",
+    "commit": "5654fcb6cdae10454b16100ebde315a89396040b",
+    "path": "Sources/SwiftSyntax/Raw/RawSyntaxArena.swift",
+    "symbol": "RawSyntaxArena.retainedArenaCount",
+    "expectation": "added; loop and set-insertion traversal"
+  },
+  {
+    "id": "swift-syntax-07",
+    "repository": "https://github.com/swiftlang/swift-syntax",
+    "commit": "f1ae59e17077845794f114c3482d6805dde58df6",
+    "path": "Sources/SwiftParser/Expressions.swift",
+    "symbol": "Parser.parseSwitchCaseList",
+    "expectation": "modified/exactName; pound diagnostic branch added"
+  },
+  {
+    "id": "swift-syntax-08",
+    "repository": "https://github.com/swiftlang/swift-syntax",
+    "commit": "a856f00610c37701637103c5fe577bd53e453d19",
+    "path": "Sources/SwiftIfConfig/IfConfigEvaluation.swift",
+    "symbol": "evaluateIfConfig(_:configuration:)",
+    "expectation": "modified/exactName; version truncation and diagnostic path added"
+  },
+  {
+    "id": "swift-syntax-09",
+    "repository": "https://github.com/swiftlang/swift-syntax",
+    "commit": "a856f00610c37701637103c5fe577bd53e453d19",
+    "path": "Sources/SwiftIfConfig/VersionTuple+Parsing.swift",
+    "symbol": "VersionTuple.init(parsing:)",
+    "expectation": "modified/exactName; throw replaced with truncate-and-diagnose"
+  },
+  {
+    "id": "swift-syntax-10",
+    "repository": "https://github.com/swiftlang/swift-syntax",
+    "commit": "a856f00610c37701637103c5fe577bd53e453d19",
+    "path": "Sources/SwiftIfConfig/IfConfigEvaluation.swift",
+    "symbol": "trailingMemberAccessSyntaxes(of:trailingCount:)",
+    "expectation": "added; while, guard, reverse, and flatMap flow"
+  },
+  {
+    "id": "swift-syntax-11",
+    "repository": "https://github.com/swiftlang/swift-syntax",
+    "commit": "9390cffb85e31f0ddc574d0ce2911a42bdbb11b5",
+    "path": "Sources/SwiftWarningControl/SyntaxProtocol+WarningControl.swift",
+    "symbol": "SyntaxProtocol.warningGroupControl(for:configuredRegions:)",
+    "expectation": "added; configured-region traversal"
+  },
+  {
+    "id": "swift-syntax-12",
+    "repository": "https://github.com/swiftlang/swift-syntax",
+    "commit": "9390cffb85e31f0ddc574d0ce2911a42bdbb11b5",
+    "path": "Sources/SwiftWarningControl/WarningControlDeclSyntax.swift",
+    "symbol": "WithAttributesSyntax.allWarningGroupControls(configuredRegions:)",
+    "expectation": "added; conditional attribute collection"
+  },
+  {
+    "id": "swift-nio-01",
+    "repository": "https://github.com/apple/swift-nio",
+    "commit": "72973283d7780ba94d69caff08c5c3c72a2dc6f7",
+    "path": "Sources/NIOPosix/SelectorGeneric.swift",
+    "symbol": "Selector.description.makeDescription()",
+    "expectation": "modified/exactName; platform conditional and ternary added"
+  },
+  {
+    "id": "swift-nio-02",
+    "repository": "https://github.com/apple/swift-nio",
+    "commit": "afc79dd0837424b5541eed16777294d20438a414",
+    "path": "Sources/NIOPosix/SelectableEventLoop.swift",
+    "symbol": "SelectableEventLoop._scheduleCallbackIsolatedUnsafeUnchecked",
+    "expectation": "added; scheduled callback customization point"
+  },
+  {
+    "id": "swift-nio-03",
+    "repository": "https://github.com/apple/swift-nio",
+    "commit": "3777a701156d1d299576141e349f557e0523541b",
+    "path": "Sources/NIOFS/Internal/SystemFileHandle.swift",
+    "symbol": "SystemFileHandle.readChunk(fromAbsoluteOffset:length:)",
+    "expectation": "modified/exactName; ENXIO fallback branch widened"
+  },
+  {
+    "id": "swift-nio-04",
+    "repository": "https://github.com/apple/swift-nio",
+    "commit": "3777a701156d1d299576141e349f557e0523541b",
+    "path": "Sources/NIOFS/Internal/SystemFileHandle.swift",
+    "symbol": "SystemFileHandle.write(contentsOf:toAbsoluteOffset:)",
+    "expectation": "modified/exactName; ENXIO fallback branch widened"
+  },
+  {
+    "id": "swift-nio-05",
+    "repository": "https://github.com/apple/swift-nio",
+    "commit": "0b18836bd8b0162e7e17a995a3fbee20ed8f3b2b",
+    "path": "Sources/NIOHTTP1/HTTPEncoder.swift",
+    "symbol": "HTTPResponseEncoder.write(context:data:promise:)",
+    "expectation": "modified/exactName; HEAD/CONNECT control paths added"
+  },
+  {
+    "id": "swift-nio-06",
+    "repository": "https://github.com/apple/swift-nio",
+    "commit": "0b18836bd8b0162e7e17a995a3fbee20ed8f3b2b",
+    "path": "Sources/NIOHTTP1/HTTPServerRequestMethodQueue.swift",
+    "symbol": "HTTPServerRequestMethodQueue.append(_:)",
+    "expectation": "added; inline-to-overflow branch"
+  },
+  {
+    "id": "swift-nio-07",
+    "repository": "https://github.com/apple/swift-nio",
+    "commit": "0b18836bd8b0162e7e17a995a3fbee20ed8f3b2b",
+    "path": "Sources/NIOHTTP1/HTTPServerRequestMethodQueue.swift",
+    "symbol": "HTTPServerRequestMethodQueue.popFirst()",
+    "expectation": "added; empty guard and FIFO advance"
+  },
+  {
+    "id": "swift-nio-08",
+    "repository": "https://github.com/apple/swift-nio",
+    "commit": "eeb20e7f958f608064360d16542d16bf3219170c",
+    "path": "Sources/NIOHTTP1/HTTPDecoder.swift",
+    "symbol": "NIOHTTPDecoderLimitConfiguration.init()",
+    "expectation": "modified/exactName; default header limits restored"
+  }
+]
