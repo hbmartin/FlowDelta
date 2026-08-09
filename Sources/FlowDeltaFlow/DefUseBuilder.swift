@@ -13,18 +13,53 @@ public struct DefUseBuilder: Sendable {
         language: SourceLanguage
     ) -> DataFlowGraph? {
         guard language == .swift || language == .typescript || language == .javascript else { return nil }
-        var definitions: [String: StableID] = [:]
-        var edges: Set<DataFlowEdge> = []
-        for node in graph.nodes.sorted(by: { ($0.sourceOrder, $0.id) < ($1.sourceOrder, $1.id) })
-            where !node.isSynthetic
-        {
-            let facts = lexicalFacts(in: node.label, language: language)
-            for symbol in facts.uses.sorted() {
-                guard let definition = definitions[symbol], definition != node.id else { continue }
-                edges.insert(DataFlowEdge(symbol: symbol, definition: definition, use: node.id))
+        let syntaxByID = Dictionary(
+            entity.body.descendants.map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        let orderedNodes = graph.nodes.sorted(by: { ($0.sourceOrder, $0.id) < ($1.sourceOrder, $1.id) })
+        let factsByNode = Dictionary(uniqueKeysWithValues: orderedNodes.map { node in
+            let source = sourceText(for: node, syntaxByID: syntaxByID)
+            return (node.id, node.isSynthetic ? LexicalFacts.empty : lexicalFacts(in: source, language: language))
+        })
+        let predecessors = Dictionary(grouping: graph.edges, by: \.target).mapValues { edges in
+            Set(edges.map(\.source))
+        }
+        let parameterState = Dictionary(uniqueKeysWithValues: parameterNames(in: entity, language: language).map {
+            ($0, Set([graph.entryID]))
+        })
+        var incomingByNode: [StableID: DefinitionState] = [:]
+        var outgoingByNode: [StableID: DefinitionState] = [:]
+        var changed = true
+        while changed {
+            changed = false
+            for node in orderedNodes {
+                var incoming = mergeDefinitions(
+                    from: predecessors[node.id, default: []],
+                    outgoingByNode: outgoingByNode
+                )
+                if node.id == graph.entryID {
+                    incoming.merge(parameterState) { $0.union($1) }
+                }
+                incomingByNode[node.id] = incoming
+                var outgoing = incoming
+                for symbol in factsByNode[node.id, default: .empty].definitions {
+                    outgoing[symbol] = [node.id]
+                }
+                if outgoingByNode[node.id] != outgoing {
+                    outgoingByNode[node.id] = outgoing
+                    changed = true
+                }
             }
-            for symbol in facts.definitions.sorted() {
-                definitions[symbol] = node.id
+        }
+
+        var edges: Set<DataFlowEdge> = []
+        for node in orderedNodes where !node.isSynthetic {
+            let facts = factsByNode[node.id, default: .empty]
+            for symbol in facts.uses.sorted() {
+                for definition in incomingByNode[node.id]?[symbol] ?? [] where definition != node.id {
+                    edges.insert(DataFlowEdge(symbol: symbol, definition: definition, use: node.id))
+                }
             }
         }
         let result = DataFlowGraph(entityID: entity.id, edges: Array(edges))
@@ -36,7 +71,7 @@ public struct DefUseBuilder: Sendable {
 
     private func lexicalFacts(in source: String, language: SourceLanguage) -> LexicalFacts {
         let text = strippingStringsAndComments(source)
-        let identifiers = matches(pattern: #"\b[A-Za-z_$][A-Za-z0-9_$]*\b"#, in: text, group: 0)
+        let identifiers = identifiersExcludingMemberNames(in: text)
         var definitions = Set(matches(
             pattern: #"\b(?:let|var|const)\s+([A-Za-z_$][A-Za-z0-9_$]*)"#,
             in: text,
@@ -47,11 +82,7 @@ public struct DefUseBuilder: Sendable {
             in: text,
             group: 1
         ))
-        definitions.formUnion(matches(
-            pattern: #"\b([A-Za-z_$][A-Za-z0-9_$]*)\s*(?:\+|-|\*|/|%|\?\?)?=(?!=|>)"#,
-            in: text,
-            group: 1
-        ))
+        definitions.formUnion(assignmentDefinitions(in: text))
         definitions.formUnion(matches(
             pattern: #"\bcatch\s*(?:\(|let\s+|var\s+)?([A-Za-z_$][A-Za-z0-9_$]*)"#,
             in: text,
@@ -65,6 +96,113 @@ public struct DefUseBuilder: Sendable {
             uses.remove(definition)
         }
         return LexicalFacts(definitions: definitions, uses: uses)
+    }
+
+    private func sourceText(for node: FlowNode, syntaxByID: [StableID: SyntaxNode]) -> String {
+        if node.kind == .switchCase || node.kind == .deferBlock {
+            return node.label
+        }
+        if node.kind == .catchBlock {
+            return node.label.split(separator: "{", maxSplits: 1).first.map(String.init) ?? node.label
+        }
+        let candidates = node.syntaxIDs.compactMap { syntaxByID[$0] }
+        return candidates.max { lhs, rhs in
+            lhs.range.utf16Range.count < rhs.range.utf16Range.count
+        }?.text ?? node.label
+    }
+
+    private func mergeDefinitions(
+        from predecessors: Set<StableID>,
+        outgoingByNode: [StableID: DefinitionState]
+    ) -> DefinitionState {
+        var result: DefinitionState = [:]
+        for predecessor in predecessors {
+            for (symbol, definitions) in outgoingByNode[predecessor, default: [:]] {
+                result[symbol, default: []].formUnion(definitions)
+            }
+        }
+        return result
+    }
+
+    private func parameterNames(in entity: SourceEntity, language _: SourceLanguage) -> Set<String> {
+        guard let opening = entity.qualifiedName.firstIndex(of: "("),
+              let closing = entity.qualifiedName.lastIndex(of: ")"),
+              opening < closing
+        else { return [] }
+        let clause = entity.qualifiedName[entity.qualifiedName.index(after: opening) ..< closing]
+        return Set(splitParameters(String(clause)).compactMap { parameter in
+            var declaration = parameter.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !declaration.isEmpty, !declaration.hasPrefix("{"), !declaration.hasPrefix("[") else {
+                return nil
+            }
+            if let equals = declaration.firstIndex(of: "=") {
+                declaration = String(declaration[..<equals])
+            }
+            if let colon = declaration.firstIndex(of: ":") {
+                declaration = String(declaration[..<colon])
+            }
+            let normalized = declaration
+                .replacingOccurrences(of: "...", with: "")
+                .replacingOccurrences(of: "?", with: "")
+            let pieces = normalized.split(whereSeparator: { $0.isWhitespace })
+            let ignored: Set = ["_", "inout", "isolated", "borrowing", "consuming"]
+            let tokens = pieces.map(String.init).filter { !ignored.contains($0) }
+            guard let candidate = tokens.last,
+                  candidate.range(of: #"^[A-Za-z_$][A-Za-z0-9_$]*$"#, options: .regularExpression) != nil
+            else { return nil }
+            return candidate
+        })
+    }
+
+    private func splitParameters(_ clause: String) -> [String] {
+        var result: [String] = []
+        var current = ""
+        var depth = 0
+        for character in clause {
+            switch character {
+            case "(", "[", "{", "<":
+                depth += 1
+            case ")", "]", "}", ">":
+                depth = max(0, depth - 1)
+            case "," where depth == 0:
+                result.append(current)
+                current = ""
+                continue
+            default:
+                break
+            }
+            current.append(character)
+        }
+        result.append(current)
+        return result
+    }
+
+    private func identifiersExcludingMemberNames(in source: String) -> [String] {
+        guard let expression = try? NSRegularExpression(pattern: #"\b[A-Za-z_$][A-Za-z0-9_$]*\b"#) else {
+            return []
+        }
+        let range = NSRange(source.startIndex ..< source.endIndex, in: source)
+        return expression.matches(in: source, range: range).compactMap { match in
+            guard let matchRange = Range(match.range, in: source) else { return nil }
+            let prefix = source[..<matchRange.lowerBound]
+            if prefix.last(where: { !$0.isWhitespace }) == "." {
+                return nil
+            }
+            return String(source[matchRange])
+        }
+    }
+
+    private func assignmentDefinitions(in source: String) -> Set<String> {
+        guard let expression = try? NSRegularExpression(
+            pattern: #"\b([A-Za-z_$][A-Za-z0-9_$]*)\s*(?:\+|-|\*|/|%|\?\?)?=(?!=|>)"#
+        ) else { return [] }
+        let range = NSRange(source.startIndex ..< source.endIndex, in: source)
+        return Set(expression.matches(in: source, range: range).compactMap { match in
+            guard let nameRange = Range(match.range(at: 1), in: source) else { return nil }
+            let prefix = source[..<nameRange.lowerBound]
+            guard prefix.last(where: { !$0.isWhitespace }) != "." else { return nil }
+            return String(source[nameRange])
+        })
     }
 
     private func strippingStringsAndComments(_ source: String) -> String {
@@ -110,4 +248,8 @@ public struct DefUseBuilder: Sendable {
 private struct LexicalFacts {
     let definitions: Set<String>
     let uses: Set<String>
+
+    static let empty = LexicalFacts(definitions: [], uses: [])
 }
+
+private typealias DefinitionState = [String: Set<StableID>]

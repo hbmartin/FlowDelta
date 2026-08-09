@@ -141,9 +141,9 @@ public struct SwiftEntityExtractor: Sendable {
         }
         guard !candidates.isEmpty else { return nil }
         let parameters = candidates.map { parameter in
-            parameter.normalizedTokens
-                .filter { !$0.hasPrefix("//") && !$0.hasPrefix("/*") }
-                .joined()
+            parameter.text
+                .split(whereSeparator: { $0.isWhitespace })
+                .joined(separator: " ")
         }
         return "(\(parameters.joined(separator: ",")))"
     }

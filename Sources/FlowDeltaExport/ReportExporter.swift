@@ -136,8 +136,10 @@ public struct FlowDeltaReportExporter: Sendable {
         let bases = Set(report.functionDeltas.flatMap { delta in
             delta.nodes.flatMap { $0.causality.map(\.basis.rawValue) }
         }).sorted()
-        lines.append("Affected nodes in this report use the **\(bases.joined(separator: " + ")) context** basis.")
-        lines.append("")
+        if !bases.isEmpty {
+            lines.append("Affected nodes in this report use the **\(bases.joined(separator: " + ")) context** basis.")
+            lines.append("")
+        }
         return lines.joined(separator: "\n")
     }
 

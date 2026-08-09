@@ -55,7 +55,7 @@ public final class FlowDeltaReviewView: NSView, NSTableViewDataSource, NSTableVi
 
     public func display(_ report: RevisionFlowDeltaReport) {
         currentReport = report
-        revisionLabel.stringValue = "\(Self.short(report.base.value)) → \(Self.short(report.target.value))"
+        revisionLabel.stringValue = "\(ReviewViewComponents.short(report.base.value)) → \(ReviewViewComponents.short(report.target.value))"
         let languages = Set(report.files.map(\.comparison.language.displayName)).sorted().joined(separator: ", ")
         summaryLabel.stringValue = "\(report.files.count) files (\(languages)) • \(report.functionDeltas.count) function deltas • affected = control + data context"
         rows = report.files.flatMap { file in
@@ -175,7 +175,7 @@ public final class FlowDeltaReviewView: NSView, NSTableViewDataSource, NSTableVi
         let value: String
         if identifier.rawValue == "change" {
             value = rows[row].change.kind.rawValue.capitalized
-            cell.textField?.textColor = Self.color(for: rows[row].change.kind)
+            cell.textField?.textColor = ReviewViewComponents.color(for: rows[row].change.kind)
             cell.textField?.font = NSFont.systemFont(ofSize: 11, weight: .semibold)
         } else {
             let entity = rows[row].change.new ?? rows[row].change.old
@@ -457,6 +457,11 @@ private extension FlowDeltaReviewView {
         callNodesByID = [:]
         sliceButton.isEnabled = modeControl.selectedSegment == 0
         sliceDirectionControl.isEnabled = modeControl.selectedSegment == 0
+        if modeControl.selectedSegment != 0 {
+            sliceButton.state = .off
+        }
+        graphView.emphasizeNodes(withStableIDs: nil)
+        comparisonGraphView.emphasizeNodes(withStableIDs: nil)
         switch modeControl.selectedSegment {
         case 1:
             renderJuxtaposed(function)
@@ -465,6 +470,15 @@ private extension FlowDeltaReviewView {
         default:
             renderDelta(function, animated: animated)
         }
+        restoreCurrentFunctionSource()
+        updateSliceFocus()
+    }
+
+    private func restoreCurrentFunctionSource() {
+        guard let currentFile else { return }
+        let snapshot = currentFile.comparison.new ?? currentFile.comparison.old
+        let title = currentFile.comparison.new == nil ? "Base source" : "Target source"
+        sourceView.display(snapshot, title: title)
     }
 
     private func renderDelta(_ function: FunctionFlowDelta, animated: Bool) {
@@ -632,19 +646,5 @@ private extension FlowDeltaReviewView {
         let snapshot = file.comparison.new ?? file.comparison.old
         sourceView.display(snapshot, title: "Call source")
         sourceView.select(callNode.range)
-    }
-
-    private static func short(_ revision: String) -> String {
-        String(revision.prefix(8))
-    }
-
-    private static func color(for kind: EntityChangeKind) -> NSColor {
-        switch kind {
-        case .added: .systemGreen
-        case .removed: .systemRed
-        case .modified: .systemOrange
-        case .moved, .renamed: .systemPurple
-        case .unchanged: .secondaryLabelColor
-        }
     }
 }

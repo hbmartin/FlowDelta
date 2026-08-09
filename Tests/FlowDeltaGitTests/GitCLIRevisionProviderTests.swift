@@ -87,6 +87,28 @@ final class GitCLIRevisionProviderTests: XCTestCase {
         XCTAssertEqual(Set(comparison.files.map(\.language)), Set(SourceLanguage.allCases))
     }
 
+    func testCrossExtensionRenamesBecomeSupportedSideAdditionsAndDeletions() async throws {
+        let repository = try TemporaryGitRepository()
+        try repository.write("func outgoing() {}\n", to: "Outgoing.swift")
+        try repository.write("func incoming() {}\n", to: "Incoming.txt")
+        try repository.commit("base")
+        try repository.move("Outgoing.swift", to: "Outgoing.txt")
+        try repository.move("Incoming.txt", to: "Incoming.swift")
+        try repository.commit("target")
+
+        let comparison = try await GitCLIRevisionProvider().comparison(
+            repositoryURL: repository.url,
+            base: "HEAD^",
+            target: "HEAD"
+        )
+
+        XCTAssertEqual(comparison.files.count, 2)
+        let deletion = try XCTUnwrap(comparison.files.first { $0.old?.path == "Outgoing.swift" })
+        XCTAssertNil(deletion.new)
+        let addition = try XCTUnwrap(comparison.files.first { $0.new?.path == "Incoming.swift" })
+        XCTAssertNil(addition.old)
+    }
+
     func testRejectsNonUTF8SourceBlob() async throws {
         let repository = try TemporaryGitRepository()
         try repository.write("func value() {}\n", to: "Value.swift")

@@ -20,6 +20,8 @@ jobs:
         run: scripts/run_pinned_tool.sh swiftlint lint --strict
       - name: Test
         run: swift test
+      - name: Test IndexStore extension
+        run: swift test --package-path Extensions/FlowDeltaIndexStore
       - name: Coverage
         run: |
           mkdir -p build
@@ -31,3 +33,5 @@ jobs:
           scripts/check_coverage.py build/FlowDeltaCoverage.xcresult
       - name: Release build
         run: swift build -c release
+      - name: Release build IndexStore extension
+        run: swift build --package-path Extensions/FlowDeltaIndexStore -c release

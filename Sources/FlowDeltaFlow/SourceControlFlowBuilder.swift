@@ -40,8 +40,15 @@ private struct GenericPendingExit {
 }
 
 private struct GenericFlowContext {
-    var breakTarget: StableID?
-    var continueTarget: StableID?
+    var breakTarget: GenericTransferTarget?
+    var continueTarget: GenericTransferTarget?
+    var errorTarget: GenericTransferTarget
+    var finalizers: [SyntaxNode] = []
+}
+
+private struct GenericTransferTarget {
+    let nodeID: StableID
+    let finalizerDepth: Int
 }
 
 private struct GenericControlFlowBuilder {
@@ -68,7 +75,9 @@ private struct GenericControlFlowBuilder {
         try appendNode(FlowNode(id: entryID, kind: .entry, label: "Entry", sourceOrder: nextOrder()))
         try appendNode(FlowNode(id: exitID, kind: .exit, label: "Exit", sourceOrder: Int.max - 1))
         try appendNode(FlowNode(id: errorExitID, kind: .errorExit, label: "Error Exit", sourceOrder: Int.max))
-        var context = GenericFlowContext()
+        var context = GenericFlowContext(
+            errorTarget: GenericTransferTarget(nodeID: errorExitID, finalizerDepth: 0)
+        )
         let open = try lowerSequence(statements(in: entity.body), incoming: [.open(entryID)], context: &context)
         try connect(open, to: exitID)
         return ControlFlowGraph(
@@ -111,17 +120,30 @@ private struct GenericControlFlowBuilder {
             return try lowerTry(statement, incoming: incoming, context: context)
         }
         if profile.returnKinds.contains(statement.kind) {
-            return try lowerTransfer(statement, incoming: incoming, target: exitID, kind: .returnFlow)
+            return try lowerTransfer(
+                statement,
+                incoming: incoming,
+                target: GenericTransferTarget(nodeID: exitID, finalizerDepth: 0),
+                kind: .returnFlow,
+                context: context
+            )
         }
         if profile.throwKinds.contains(statement.kind) {
-            return try lowerTransfer(statement, incoming: incoming, target: errorExitID, kind: .throwFlow)
+            return try lowerTransfer(
+                statement,
+                incoming: incoming,
+                target: context.errorTarget,
+                kind: .throwFlow,
+                context: context
+            )
         }
         if profile.breakKinds.contains(statement.kind) {
             return try lowerTransfer(
                 statement,
                 incoming: incoming,
                 target: context.breakTarget,
-                kind: .breakFlow
+                kind: .breakFlow,
+                context: context
             )
         }
         if profile.continueKinds.contains(statement.kind) {
@@ -129,7 +151,8 @@ private struct GenericControlFlowBuilder {
                 statement,
                 incoming: incoming,
                 target: context.continueTarget,
-                kind: .continueFlow
+                kind: .continueFlow,
+                context: context
             )
         }
         if profile.statementContainers.contains(statement.kind) {
@@ -197,8 +220,14 @@ private struct GenericControlFlowBuilder {
         let body = statement.firstChild(fieldName: "body")
             ?? statement.children.first { profile.statementContainers.contains($0.kind) }
         var loopContext = context
-        loopContext.breakTarget = afterID
-        loopContext.continueTarget = condition.id
+        loopContext.breakTarget = GenericTransferTarget(
+            nodeID: afterID,
+            finalizerDepth: context.finalizers.count
+        )
+        loopContext.continueTarget = GenericTransferTarget(
+            nodeID: condition.id,
+            finalizerDepth: context.finalizers.count
+        )
         let bodyExits = try lowerBranch(
             body,
             incoming: [GenericPendingExit(nodeID: condition.id, edgeKind: .conditionTrue, label: "body")],
@@ -234,21 +263,52 @@ private struct GenericControlFlowBuilder {
             label: "switch \(compact(subject?.text ?? statement.text))"
         )
         try connect(incoming, to: decision.id)
-        let caseKinds: Set = [
-            "switch_case", "switch_default", "case_clause", "default_clause", "expression_case", "type_case",
-            "communication_case"
-        ]
-        let cases = statement.descendants.filter { caseKinds.contains($0.kind) }
-        guard !cases.isEmpty else { return [.open(decision.id)] }
-        var exits: [GenericPendingExit] = []
-        for branch in cases {
-            let caseNode = try sourceNode(branch, kind: .switchCase, label: compact(branch.text))
-            try appendEdge(source: decision.id, target: caseNode.id, kind: .switchCase, label: compact(branch.text))
-            var branchContext = context
-            let branchStatements = statements(in: branch)
-            exits += try lowerSequence(branchStatements, incoming: [.open(caseNode.id)], context: &branchContext)
+        let join = try syntheticNode(role: "switch-exit", near: statement, label: "after switch")
+        let cases = directSwitchCases(in: statement)
+        guard !cases.isEmpty else {
+            try appendEdge(source: decision.id, target: join.id, kind: .conditionFalse, label: "no cases")
+            return [.open(join.id)]
         }
-        return exits
+        let hasDefault = cases.contains { branch in
+            branch.kind == "switch_default" || branch.kind == "default_clause"
+                || branch.text.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("default")
+        }
+        if !hasDefault {
+            try appendEdge(source: decision.id, target: join.id, kind: .conditionFalse, label: "no match")
+        }
+        var caseNodes: [FlowNode] = []
+        for branch in cases {
+            let label = branch.text.split(separator: ":", maxSplits: 1).first.map(String.init) ?? branch.text
+            let caseNode = try sourceNode(branch, kind: .switchCase, label: compact(label))
+            caseNodes.append(caseNode)
+            try appendEdge(source: decision.id, target: caseNode.id, kind: .switchCase, label: compact(branch.text))
+        }
+        for (index, branch) in cases.enumerated() {
+            var branchContext = context
+            branchContext.breakTarget = GenericTransferTarget(
+                nodeID: join.id,
+                finalizerDepth: context.finalizers.count
+            )
+            let exits = try lowerSequence(
+                switchStatements(in: branch),
+                incoming: [.open(caseNodes[index].id)],
+                context: &branchContext
+            )
+            let explicitFallthrough = profile.language == .go
+                && branch.descendants.contains { $0.kind == "fallthrough_statement" }
+            let implicitFallthrough = profile.language == .javascript || profile.language == .typescript
+            let flowsToNext = index + 1 < caseNodes.count && (explicitFallthrough || implicitFallthrough)
+            let target = flowsToNext ? caseNodes[index + 1].id : join.id
+            for exit in exits {
+                try appendEdge(
+                    source: exit.nodeID,
+                    target: target,
+                    kind: .fallthrough,
+                    label: flowsToNext ? "fallthrough" : nil
+                )
+            }
+        }
+        return [.open(join.id)]
     }
 
     mutating func lowerTry(
@@ -256,35 +316,129 @@ private struct GenericControlFlowBuilder {
         incoming: [GenericPendingExit],
         context: GenericFlowContext
     ) throws -> [GenericPendingExit] {
-        let attempt = try sourceNode(statement, kind: .basicBlock, label: "try")
+        let attempt = try syntheticNode(role: "try-entry", near: statement, label: "try")
         try connect(incoming, to: attempt.id)
-        var exits: [GenericPendingExit] = []
-        if let body = statement.firstChild(fieldName: "body") {
-            var bodyContext = context
-            exits += try lowerBranch(body, incoming: [.open(attempt.id)], context: &bodyContext)
+        let join = try syntheticNode(role: "try-exit", near: statement, label: "after try")
+        let catches = statement.children.filter { profile.catchKinds.contains($0.kind) }
+        let finalizer = statement.children.first { profile.finallyKinds.contains($0.kind) }
+        let dispatch = catches.isEmpty
+            ? nil
+            : try syntheticNode(role: "catch-dispatch", near: statement, label: "catch")
+        var bodyContext = context
+        if let finalizer {
+            bodyContext.finalizers.append(finalizer)
         }
-        for clause in statement.children where profile.catchKinds.contains(clause.kind) {
-            let catchNode = try sourceNode(clause, kind: .catchBlock, label: compact(clause.text))
-            try appendEdge(source: attempt.id, target: catchNode.id, kind: .catchFlow, label: "error")
-            var catchContext = context
-            exits += try lowerSequence(statements(in: clause), incoming: [.open(catchNode.id)], context: &catchContext)
+        if let dispatch {
+            bodyContext.errorTarget = GenericTransferTarget(
+                nodeID: dispatch.id,
+                finalizerDepth: bodyContext.finalizers.count
+            )
         }
-        return exits.isEmpty ? [.open(attempt.id)] : exits
+        var bodyExits = try lowerBranch(
+            statement.firstChild(fieldName: "body"),
+            incoming: [.open(attempt.id)],
+            context: &bodyContext
+        )
+        bodyExits = try lowerFinally(finalizer, incoming: bodyExits, context: context)
+        try connect(bodyExits, to: join.id)
+
+        if let dispatch {
+            for clause in catches {
+                let catchNode = try sourceNode(clause, kind: .catchBlock, label: compact(clause.text))
+                try appendEdge(source: dispatch.id, target: catchNode.id, kind: .catchFlow, label: "error")
+                var catchContext = context
+                if let finalizer {
+                    catchContext.finalizers.append(finalizer)
+                }
+                var catchExits = try lowerSequence(
+                    statements(in: clause),
+                    incoming: [.open(catchNode.id)],
+                    context: &catchContext
+                )
+                catchExits = try lowerFinally(finalizer, incoming: catchExits, context: context)
+                try connect(catchExits, to: join.id)
+            }
+        }
+        return [.open(join.id)]
     }
 
     mutating func lowerTransfer(
         _ statement: SyntaxNode,
         incoming: [GenericPendingExit],
-        target: StableID?,
-        kind: FlowEdgeKind
+        target: GenericTransferTarget?,
+        kind: FlowEdgeKind,
+        context: GenericFlowContext
     ) throws -> [GenericPendingExit] {
         let node = try sourceNode(statement, kind: .basicBlock, label: compact(statement.text))
         try connect(incoming, to: node.id)
         if let target {
-            try appendEdge(source: node.id, target: target, kind: kind, label: nil)
+            let finalizers = Array(context.finalizers.dropFirst(target.finalizerDepth))
+            let finalized = try appendFinalizerExecutions(
+                to: [.open(node.id)],
+                finalizers: finalizers,
+                reason: kind.rawValue
+            )
+            for exit in finalized {
+                try appendEdge(source: exit.nodeID, target: target.nodeID, kind: kind, label: nil)
+            }
             return []
         }
         return [.open(node.id)]
+    }
+
+    mutating func lowerFinally(
+        _ finalizer: SyntaxNode?,
+        incoming: [GenericPendingExit],
+        context: GenericFlowContext
+    ) throws -> [GenericPendingExit] {
+        guard let finalizer, !incoming.isEmpty else { return incoming }
+        let node = try sourceNode(finalizer, kind: .deferBlock, label: "finally")
+        let deferred = incoming.map {
+            GenericPendingExit(nodeID: $0.nodeID, edgeKind: .deferredFlow, label: "finally")
+        }
+        try connect(deferred, to: node.id)
+        var finalContext = context
+        return try lowerSequence(
+            statements(in: finalizer),
+            incoming: [.open(node.id)],
+            context: &finalContext
+        )
+    }
+
+    mutating func appendFinalizerExecutions(
+        to exits: [GenericPendingExit],
+        finalizers: [SyntaxNode],
+        reason: String
+    ) throws -> [GenericPendingExit] {
+        guard !finalizers.isEmpty else { return exits }
+        var result: [GenericPendingExit] = []
+        for pending in exits {
+            var previous = pending
+            for finalizer in finalizers.reversed() {
+                let id = StableID(
+                    namespace: "flow",
+                    components: [entity.id.rawValue, finalizer.id.rawValue, reason, previous.nodeID.rawValue]
+                )
+                let node = FlowNode(
+                    id: id,
+                    kind: .deferBlock,
+                    label: "finally \(compact(finalizer.text))",
+                    sourceRanges: [finalizer.range],
+                    syntaxIDs: [finalizer.id],
+                    sourceOrder: nextOrder()
+                )
+                try appendNode(node)
+                try appendEdge(
+                    source: previous.nodeID,
+                    target: node.id,
+                    kind: .deferredFlow,
+                    label: reason
+                )
+                previous = .open(node.id)
+            }
+            result.append(previous)
+        }
+        return result
     }
 
     mutating func lowerBranch(
@@ -308,6 +462,40 @@ private struct GenericControlFlowBuilder {
         }
     }
 
+    func directSwitchCases(in statement: SyntaxNode) -> [SyntaxNode] {
+        let caseKinds: Set = [
+            "switch_case", "switch_default", "case_clause", "default_clause", "expression_case", "type_case",
+            "communication_case"
+        ]
+        func collect(_ node: SyntaxNode) -> [SyntaxNode] {
+            var result: [SyntaxNode] = []
+            for child in node.children {
+                if caseKinds.contains(child.kind) {
+                    result.append(child)
+                } else if !profile.switchKinds.contains(child.kind) {
+                    result.append(contentsOf: collect(child))
+                }
+            }
+            return result
+        }
+        return collect(statement)
+    }
+
+    func switchStatements(in branch: SyntaxNode) -> [SyntaxNode] {
+        if let container = branch.children.first(where: { profile.statementContainers.contains($0.kind) }) {
+            return statements(in: container)
+        }
+        return branch.children.filter { child in
+            child.isNamed
+                && child.kind != "comment"
+                && child.kind != "line_comment"
+                && child.kind != "block_comment"
+                && child.fieldName != "value"
+                && child.fieldName != "condition"
+                && child.fieldName != "pattern"
+        }
+    }
+
     mutating func sourceNode(_ syntax: SyntaxNode, kind: FlowNodeKind, label: String) throws -> FlowNode {
         let node = FlowNode(
             id: StableID(namespace: "flow", components: [entity.id.rawValue, syntax.id.rawValue, kind.rawValue]),
@@ -315,6 +503,17 @@ private struct GenericControlFlowBuilder {
             label: label,
             sourceRanges: [syntax.range],
             syntaxIDs: [syntax.id],
+            sourceOrder: nextOrder()
+        )
+        try appendNode(node)
+        return node
+    }
+
+    mutating func syntheticNode(role: String, near syntax: SyntaxNode, label: String) throws -> FlowNode {
+        let node = FlowNode(
+            id: StableID(namespace: "flow", components: [entity.id.rawValue, syntax.id.rawValue, role]),
+            kind: .basicBlock,
+            label: label,
             sourceOrder: nextOrder()
         )
         try appendNode(node)

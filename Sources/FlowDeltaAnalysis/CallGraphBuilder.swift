@@ -126,24 +126,43 @@ public struct CallGraphBuilder: Sendable {
     }
 
     private func calledNames(in body: SyntaxNode, profile: LanguageProfile) -> Set<String> {
-        Set(body.descendants.compactMap { node in
-            guard profile.callKinds.contains(node.kind) else { return nil }
-            let callable = node.firstChild(fieldName: "function")
-                ?? node.firstChild(fieldName: "callee")
-                ?? node.children.first(where: { child in
-                    profile.identifierKinds.contains(child.kind)
-                        || child.kind.contains("member")
-                        || child.kind.contains("selector")
-                })
-            let candidate = callable?.firstChild(fieldName: "property")?.text
-                ?? callable?.firstChild(fieldName: "field")?.text
-                ?? callable?.descendants.last(where: { profile.identifierKinds.contains($0.kind) })?.text
-                ?? callable?.text
-            guard let candidate else { return nil }
-            let trimmed = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
-            return trimmed.isEmpty ? nil : trimmed
-        })
+        var result: Set<String> = []
+        func visit(_ node: SyntaxNode, isRoot: Bool) {
+            if !isRoot, Self.nestedCallableKinds.contains(node.kind) {
+                return
+            }
+            if profile.callKinds.contains(node.kind) {
+                let callable = node.firstChild(fieldName: "function")
+                    ?? node.firstChild(fieldName: "callee")
+                    ?? node.children.first(where: { child in
+                        profile.identifierKinds.contains(child.kind)
+                            || child.kind.contains("member")
+                            || child.kind.contains("selector")
+                    })
+                let candidate = callable?.firstChild(fieldName: "property")?.text
+                    ?? callable?.firstChild(fieldName: "field")?.text
+                    ?? callable?.descendants.last(where: { profile.identifierKinds.contains($0.kind) })?.text
+                    ?? callable?.text
+                if let candidate {
+                    let trimmed = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !trimmed.isEmpty {
+                        result.insert(trimmed)
+                    }
+                }
+            }
+            for child in node.children {
+                visit(child, isRoot: false)
+            }
+        }
+        visit(body, isRoot: true)
+        return result
     }
+
+    private static let nestedCallableKinds: Set<String> = [
+        "function_declaration", "generator_function_declaration", "function_expression", "generator_function",
+        "arrow_function", "method_definition", "function_definition", "lambda", "function_literal",
+        "method_declaration", "initializer_declaration", "deinitializer_declaration", "subscript_declaration"
+    ]
 
     private static func deltaState(for kind: EntityChangeKind) -> DeltaState {
         switch kind {
