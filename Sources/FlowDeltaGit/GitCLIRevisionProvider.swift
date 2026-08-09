@@ -66,8 +66,8 @@ public struct GitCLIRevisionProvider: RevisionProvider, Sendable {
             in: repositoryURL
         )
         let records = try parseNameStatus(statusData).filter { record in
-            record.oldPath?.lowercased().hasSuffix(".swift") == true
-                || record.newPath?.lowercased().hasSuffix(".swift") == true
+            record.oldPath.flatMap(SourceLanguage.init(path:)) != nil
+                || record.newPath.flatMap(SourceLanguage.init(path:)) != nil
         }
         guard records.count <= limits.maximumChangedFiles else {
             throw GitRevisionProviderError.changedFileLimitExceeded(
@@ -109,7 +109,7 @@ public struct GitCLIRevisionProvider: RevisionProvider, Sendable {
         }
 
         Self.logger.notice(
-            "Loaded \(files.count) changed Swift files from \(canonicalBase, privacy: .public) to \(canonicalTarget, privacy: .public)"
+            "Loaded \(files.count) changed source files from \(canonicalBase, privacy: .public) to \(canonicalTarget, privacy: .public)"
         )
         return RevisionComparison(
             base: RevisionIdentity(canonicalBase),
@@ -135,10 +135,13 @@ public struct GitCLIRevisionProvider: RevisionProvider, Sendable {
         guard let text = String(data: data, encoding: .utf8) else {
             throw GitRevisionProviderError.invalidUTF8(context: path)
         }
+        guard let language = SourceLanguage(path: path) else {
+            preconditionFailure("Unsupported source path passed through revision filtering: \(path)")
+        }
         return SourceSnapshot(
             path: path,
             revision: RevisionIdentity(revision),
-            language: .swift,
+            language: language,
             text: text
         )
     }

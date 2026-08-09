@@ -4,6 +4,33 @@ import FlowDeltaLayout
 import XCTest
 
 final class LayoutTests: XCTestCase {
+    func testDataDependenciesRouteWithoutChangingControlRanks() throws {
+        let graph = makeGraph(nodeCount: 4)
+        let source = try XCTUnwrap(graph.nodes.first { $0.sourceOrder == 0 })
+        let target = try XCTUnwrap(graph.nodes.first { $0.sourceOrder == 3 })
+        let dataEdge = FlowEdge(
+            source: source.id,
+            target: target.id,
+            kind: .dataDependency,
+            label: "value"
+        )
+        let graphWithData = ControlFlowGraph(
+            entityID: graph.entityID,
+            nodes: graph.nodes,
+            edges: graph.edges + [dataEdge],
+            entryID: graph.entryID,
+            exitID: graph.exitID,
+            errorExitID: graph.errorExitID
+        )
+        let engine = DominatorAnchoredLayout()
+
+        let controlLayout = engine.layout(graph: graph)
+        let dataLayout = engine.layout(graph: graphWithData)
+
+        XCTAssertEqual(dataLayout.ranks, controlLayout.ranks)
+        XCTAssertNotNil(dataLayout.edgeRoutes[dataEdge.id])
+    }
+
     func testThirtyNodeLayoutIsDeterministicAndRoutesBackEdgeOutside() throws {
         let graph = makeGraph(nodeCount: 30, backEdgeTo: 10)
         let layout = DominatorAnchoredLayout()

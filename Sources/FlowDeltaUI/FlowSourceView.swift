@@ -30,7 +30,7 @@ public final class FlowSourceView: NSView {
         }
         let highlighted = try? Highlighter.shared.attributedString(
             for: snapshot.text,
-            selection: .named("swift"),
+            selection: .named(snapshot.language.rawValue),
             theme: .xcodeLight
         )
         textView.textStorage?.setAttributedString(

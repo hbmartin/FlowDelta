@@ -2,14 +2,36 @@ import FlowDeltaCore
 import Foundation
 import OSLog
 import SwiftTreeSitter
+import TreeSitterGo
+import TreeSitterJavaScript
+import TreeSitterPython
 import TreeSitterSwift
+import TreeSitterTSX
+import TreeSitterTypeScript
 
-public enum SwiftSyntaxParserError: Error, Equatable {
+public enum SourceSyntaxParserError: Error, Equatable {
     case parserInitialization
     case nodeLimitExceeded(limit: Int)
+    case languageMismatch(expected: SourceLanguage, actual: SourceLanguage)
 }
 
+public typealias SwiftSyntaxParserError = SourceSyntaxParserError
+
 public struct SwiftSyntaxParser: Sendable {
+    public init() {}
+
+    public func parse(
+        _ snapshot: SourceSnapshot,
+        limits: AnalysisLimits = .default
+    ) throws -> SyntaxTree {
+        guard snapshot.language == .swift else {
+            throw SourceSyntaxParserError.languageMismatch(expected: .swift, actual: snapshot.language)
+        }
+        return try SourceSyntaxParser().parse(snapshot, limits: limits)
+    }
+}
+
+public struct SourceSyntaxParser: Sendable {
     private static let logger = Logger(subsystem: "com.hbmartin.FlowDelta", category: "Parse")
 
     public init() {}
@@ -19,10 +41,10 @@ public struct SwiftSyntaxParser: Sendable {
         limits: AnalysisLimits = .default
     ) throws -> SyntaxTree {
         let parser = Parser()
-        let language = Language(language: tree_sitter_swift())
+        let language = language(for: snapshot)
         try parser.setLanguage(language)
         guard let mutableTree = parser.parse(snapshot.text), let root = mutableTree.rootNode else {
-            throw SwiftSyntaxParserError.parserInitialization
+            throw SourceSyntaxParserError.parserInitialization
         }
 
         let index = SourceIndex(snapshot.text)
@@ -43,6 +65,23 @@ public struct SwiftSyntaxParser: Sendable {
         return SyntaxTree(snapshot: snapshot, root: normalized, errorCount: errorCount)
     }
 
+    private func language(for snapshot: SourceSnapshot) -> Language {
+        switch snapshot.language {
+        case .swift:
+            Language(language: tree_sitter_swift())
+        case .typescript where snapshot.path.lowercased().hasSuffix(".tsx"):
+            Language(language: tree_sitter_tsx())
+        case .typescript:
+            Language(language: tree_sitter_typescript())
+        case .javascript:
+            Language(language: tree_sitter_javascript())
+        case .python:
+            Language(language: tree_sitter_python())
+        case .go:
+            Language(language: tree_sitter_go())
+        }
+    }
+
     private func normalize(
         _ node: Node,
         fieldName: String?,
@@ -54,7 +93,7 @@ public struct SwiftSyntaxParser: Sendable {
     ) throws -> SyntaxNode {
         nodeCount += 1
         guard nodeCount <= limit else {
-            throw SwiftSyntaxParserError.nodeLimitExceeded(limit: limit)
+            throw SourceSyntaxParserError.nodeLimitExceeded(limit: limit)
         }
         if node.hasError || node.isMissing {
             errorCount += 1

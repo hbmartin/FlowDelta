@@ -40,6 +40,10 @@ public final class FlowGraphView: NSView {
         nodeViews.count
     }
 
+    public var renderedStableIDs: [String] {
+        nodeViews.keys.map(\.rawValue).sorted()
+    }
+
     public var renderedEdgeCount: Int {
         edgeContainer.sublayers?.count ?? 0
     }
@@ -204,6 +208,9 @@ public final class FlowGraphView: NSView {
             layer.path = path
             layer.fillColor = nil
             let state = edgeStates[edge.id]
+            if edge.kind == .dataDependency {
+                layer.lineDashPattern = [2, 3]
+            }
             switch state {
             case .added:
                 layer.strokeColor = NSColor.systemGreen.cgColor
@@ -215,7 +222,9 @@ public final class FlowGraphView: NSView {
             case .affected:
                 layer.strokeColor = NSColor.systemPurple.cgColor
             case .retained, nil:
-                layer.strokeColor = route.isBackEdge
+                layer.strokeColor = edge.kind == .dataDependency
+                    ? NSColor.systemTeal.cgColor
+                    : route.isBackEdge
                     ? NSColor.systemOrange.cgColor
                     : NSColor(calibratedWhite: 0.35, alpha: 0.75).cgColor
             }

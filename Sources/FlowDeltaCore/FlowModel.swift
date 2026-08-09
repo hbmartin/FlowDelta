@@ -52,6 +52,7 @@ public enum FlowEdgeKind: String, Codable, CaseIterable, Sendable {
     case throwFlow
     case deferredFlow
     case catchFlow
+    case dataDependency
 }
 
 public struct FlowEdge: Codable, Hashable, Sendable, Identifiable {

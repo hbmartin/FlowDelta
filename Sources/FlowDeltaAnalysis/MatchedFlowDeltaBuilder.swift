@@ -11,10 +11,12 @@ public struct MatchedFlowDeltaBuilder: Sendable {
         entityChange: EntityChange,
         editScript: EditScript?,
         oldGraph: ControlFlowGraph?,
-        newGraph: ControlFlowGraph?
+        newGraph: ControlFlowGraph?,
+        oldDataGraph: DataFlowGraph? = nil,
+        newDataGraph: DataFlowGraph? = nil
     ) -> FunctionFlowDelta {
         let pairs = nodePairs(oldGraph: oldGraph, newGraph: newGraph, editScript: editScript)
-        let nodeDeltas = buildNodeDeltas(
+        var nodeDeltas = buildNodeDeltas(
             pairs: pairs,
             oldGraph: oldGraph,
             newGraph: newGraph
@@ -24,6 +26,17 @@ public struct MatchedFlowDeltaBuilder: Sendable {
             oldGraph: oldGraph,
             newGraph: newGraph
         )
+        let dataEdgeDeltas = buildDataEdgeDeltas(
+            pairs: pairs,
+            oldGraph: oldDataGraph,
+            newGraph: newDataGraph
+        )
+        nodeDeltas = applyingDataCausality(dataEdgeDeltas, to: nodeDeltas)
+        let dataFlow: FunctionDataFlowDelta? = if oldDataGraph != nil || newDataGraph != nil {
+            FunctionDataFlowDelta(oldGraph: oldDataGraph, newGraph: newDataGraph, edges: dataEdgeDeltas)
+        } else {
+            nil
+        }
         let delta = FunctionFlowDelta(
             id: StableID(
                 namespace: "function-delta",
@@ -40,6 +53,7 @@ public struct MatchedFlowDeltaBuilder: Sendable {
             newGraph: newGraph,
             nodes: nodeDeltas,
             edges: edgeDeltas,
+            dataFlow: dataFlow,
             classifications: classifications(nodes: nodeDeltas, edges: edgeDeltas)
         )
         Self.logger.debug(
@@ -260,6 +274,101 @@ public struct MatchedFlowDeltaBuilder: Sendable {
         return result.sorted { $0.id < $1.id }
     }
 
+    private func buildDataEdgeDeltas(
+        pairs: [NodePair],
+        oldGraph: DataFlowGraph?,
+        newGraph: DataFlowGraph?
+    ) -> [DataFlowEdgeDelta] {
+        let oldToNew = Dictionary(uniqueKeysWithValues: pairs.map { ($0.old.id, $0.new.id) })
+        var unmatchedNew = Dictionary(uniqueKeysWithValues: (newGraph?.edges ?? []).map { ($0.id, $0) })
+        var result: [DataFlowEdgeDelta] = []
+        for old in oldGraph?.edges ?? [] {
+            guard let newDefinition = oldToNew[old.definition], let newUse = oldToNew[old.use] else {
+                result.append(DataFlowEdgeDelta(
+                    id: deltaDataEdgeID(old: old.id, new: nil),
+                    old: old,
+                    new: nil,
+                    state: .removed
+                ))
+                continue
+            }
+            let exact = unmatchedNew.values.first {
+                $0.definition == newDefinition && $0.use == newUse && $0.symbol == old.symbol
+            }
+            let compatible = exact ?? unmatchedNew.values.first {
+                $0.definition == newDefinition && $0.use == newUse
+            }
+            guard let new = compatible else {
+                result.append(DataFlowEdgeDelta(
+                    id: deltaDataEdgeID(old: old.id, new: nil),
+                    old: old,
+                    new: nil,
+                    state: .removed
+                ))
+                continue
+            }
+            unmatchedNew.removeValue(forKey: new.id)
+            result.append(DataFlowEdgeDelta(
+                id: deltaDataEdgeID(old: old.id, new: new.id),
+                old: old,
+                new: new,
+                state: old.symbol == new.symbol ? .retained : .modified
+            ))
+        }
+        result.append(contentsOf: unmatchedNew.values.map { new in
+            DataFlowEdgeDelta(
+                id: deltaDataEdgeID(old: nil, new: new.id),
+                old: nil,
+                new: new,
+                state: .added
+            )
+        })
+        return result.sorted { $0.id < $1.id }
+    }
+
+    private func applyingDataCausality(
+        _ dataEdges: [DataFlowEdgeDelta],
+        to nodes: [FlowNodeDelta]
+    ) -> [FlowNodeDelta] {
+        let indexByOld = Dictionary(uniqueKeysWithValues: nodes.enumerated().compactMap { index, node in
+            node.old.map { ($0.id, index) }
+        })
+        let indexByNew = Dictionary(uniqueKeysWithValues: nodes.enumerated().compactMap { index, node in
+            node.new.map { ($0.id, index) }
+        })
+        var linksByIndex: [Int: [CausalityLink]] = [:]
+        for edge in dataEdges where edge.state != .retained {
+            let value = edge.new ?? edge.old
+            guard let value else { continue }
+            let targetIndex = edge.new.flatMap { indexByNew[$0.use] } ?? edge.old.flatMap { indexByOld[$0.use] }
+            let triggerIndex = edge.new.flatMap { indexByNew[$0.definition] }
+                ?? edge.old.flatMap { indexByOld[$0.definition] }
+            guard let targetIndex, let triggerIndex, targetIndex != triggerIndex else { continue }
+            let target = nodes[targetIndex]
+            guard target.state == .retained || target.state == .affected,
+                  target.new?.isSynthetic != true,
+                  target.old?.isSynthetic != true
+            else { continue }
+            linksByIndex[targetIndex, default: []].append(CausalityLink(
+                triggerID: nodes[triggerIndex].id,
+                affectedID: target.id,
+                basis: .data,
+                explanation: "Data dependency for \(value.symbol) changed."
+            ))
+        }
+        return nodes.enumerated().map { index, node in
+            guard let links = linksByIndex[index], !links.isEmpty else { return node }
+            return FlowNodeDelta(
+                id: node.id,
+                old: node.old,
+                new: node.new,
+                state: .affected,
+                confidence: node.confidence,
+                causality: node.causality + links
+            )
+        }
+    }
+
     private func reachableNodes(from start: StableID, graph: ControlFlowGraph) -> Set<StableID> {
         var result: Set<StableID> = [start]
         var pending = [start]
@@ -320,6 +429,10 @@ public struct MatchedFlowDeltaBuilder: Sendable {
 
     private func deltaEdgeID(old: StableID?, new: StableID?) -> StableID {
         StableID(namespace: "flow-edge-delta", components: [old?.rawValue ?? "", new?.rawValue ?? ""])
+    }
+
+    private func deltaDataEdgeID(old: StableID?, new: StableID?) -> StableID {
+        StableID(namespace: "data-edge-delta", components: [old?.rawValue ?? "", new?.rawValue ?? ""])
     }
 }
 

@@ -69,12 +69,13 @@ public struct DominatorAnchoredLayout: Sendable {
         nodeSizes: [StableID: CGSize] = [:],
         anchors: [StableID: CGPoint] = [:]
     ) -> GraphLayoutResult {
-        let dominators = computeDominators(graph: graph)
-        let backEdgeIDs = Set(graph.edges.compactMap { edge in
+        let controlEdges = graph.edges.filter { $0.kind != .dataDependency }
+        let dominators = computeDominators(graph: graph, edges: controlEdges)
+        let backEdgeIDs = Set(controlEdges.compactMap { edge in
             dominators[edge.source]?.contains(edge.target) == true ? edge.id : nil
         })
         let leftAllowance = CGFloat(backEdgeIDs.count) * configuration.backEdgeLaneSpacing
-        let ranks = computeRanks(graph: graph, excluding: backEdgeIDs)
+        let ranks = computeRanks(graph: graph, edges: controlEdges, excluding: backEdgeIDs)
         let rankedNodes = Dictionary(grouping: graph.nodes, by: { ranks[$0.id, default: 0] })
         var frames: [StableID: CGRect] = [:]
         var maximumX = configuration.contentInsets + leftAllowance
@@ -145,7 +146,10 @@ public struct DominatorAnchoredLayout: Sendable {
         return result
     }
 
-    private func computeDominators(graph: ControlFlowGraph) -> [StableID: Set<StableID>] {
+    private func computeDominators(
+        graph: ControlFlowGraph,
+        edges: [FlowEdge]
+    ) -> [StableID: Set<StableID>] {
         let all = Set(graph.nodes.map(\.id))
         var dominators = Dictionary(uniqueKeysWithValues: graph.nodes.map { ($0.id, all) })
         dominators[graph.entryID] = [graph.entryID]
@@ -153,7 +157,7 @@ public struct DominatorAnchoredLayout: Sendable {
         while changed {
             changed = false
             for node in graph.nodes where node.id != graph.entryID {
-                let predecessors = graph.incoming(to: node.id).map(\.source)
+                let predecessors = edges.filter { $0.target == node.id }.map(\.source)
                 var next = predecessors.first.map { dominators[$0, default: all] } ?? []
                 for predecessor in predecessors.dropFirst() {
                     next.formIntersection(dominators[predecessor, default: all])
@@ -170,10 +174,11 @@ public struct DominatorAnchoredLayout: Sendable {
 
     private func computeRanks(
         graph: ControlFlowGraph,
+        edges: [FlowEdge],
         excluding backEdges: Set<StableID>
     ) -> [StableID: Int] {
         var ranks = Dictionary(uniqueKeysWithValues: graph.nodes.map { ($0.id, 0) })
-        let forward = graph.edges.filter { !backEdges.contains($0.id) }
+        let forward = edges.filter { !backEdges.contains($0.id) }
         let maximumPasses = max(1, graph.nodes.count)
         for _ in 0 ..< maximumPasses {
             var changed = false

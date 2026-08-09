@@ -32,17 +32,20 @@ public struct RevisionFlowDeltaReport: Codable, Hashable, Sendable {
     public let base: RevisionIdentity
     public let target: RevisionIdentity
     public let files: [FileFlowDelta]
+    public let callGraph: CallGraph?
     public let diagnostics: [AnalysisDiagnostic]
 
     public init(
         base: RevisionIdentity,
         target: RevisionIdentity,
         files: [FileFlowDelta],
+        callGraph: CallGraph? = nil,
         diagnostics: [AnalysisDiagnostic] = []
     ) {
         self.base = base
         self.target = target
         self.files = files.sorted { $0.path < $1.path }
+        self.callGraph = callGraph
         self.diagnostics = diagnostics
     }
 
@@ -56,6 +59,20 @@ public struct RevisionFlowDeltaReport: Codable, Hashable, Sendable {
 
     public func count(of kind: EntityChangeKind) -> Int {
         entityChanges.count { $0.kind == kind }
+    }
+
+    public func enrichingCallGraph(
+        using enricher: any CallGraphEnriching,
+        sourceFiles: [String]
+    ) throws -> RevisionFlowDeltaReport {
+        guard let callGraph else { return self }
+        return try RevisionFlowDeltaReport(
+            base: base,
+            target: target,
+            files: files,
+            callGraph: enricher.enrich(callGraph, sourceFiles: sourceFiles),
+            diagnostics: diagnostics
+        )
     }
 }
 

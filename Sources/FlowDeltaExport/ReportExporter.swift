@@ -91,8 +91,9 @@ public struct FlowDeltaReportExporter: Sendable {
             }
             for edge in graph.edges {
                 let label = edge.edge.label.map { "|\"\(escapeMermaid($0))\"|" } ?? ""
+                let connector = edge.edge.kind == .dataDependency ? "-.->" : "-->"
                 lines.append(
-                    "    \(mermaidID(edge.source)) -->\(label) \(mermaidID(edge.target))"
+                    "    \(mermaidID(edge.source)) \(connector)\(label) \(mermaidID(edge.target))"
                 )
             }
             lines.append("  end")
@@ -132,13 +133,16 @@ public struct FlowDeltaReportExporter: Sendable {
         lines.append(contentsOf: mermaid(report).split(separator: "\n").map(String.init))
         lines.append("```")
         lines.append("")
-        lines.append("Affected nodes in this report use the **control context** basis only.")
+        let bases = Set(report.functionDeltas.flatMap { delta in
+            delta.nodes.flatMap { $0.causality.map(\.basis.rawValue) }
+        }).sorted()
+        lines.append("Affected nodes in this report use the **\(bases.joined(separator: " + ")) context** basis.")
         lines.append("")
         return lines.joined(separator: "\n")
     }
 
     private func summary(_ report: RevisionFlowDeltaReport) -> String {
-        "Summary: \(report.files.count) Swift file(s), \(report.count(of: .added)) added, \(report.count(of: .removed)) removed, \(report.count(of: .modified)) modified, \(report.count(of: .moved)) moved, \(report.count(of: .renamed)) renamed."
+        "Summary: \(report.files.count) source file(s), \(report.count(of: .added)) added, \(report.count(of: .removed)) removed, \(report.count(of: .modified)) modified, \(report.count(of: .moved)) moved, \(report.count(of: .renamed)) renamed."
     }
 
     private func stateSummary(_ function: FunctionFlowDelta) -> String {
@@ -211,11 +215,28 @@ private struct ExportGraph {
             guard let node = nodeDelta.new ?? nodeDelta.old else { return nil }
             return ExportNode(id: nodeDelta.id, node: node, state: nodeDelta.state)
         }.sorted { ($0.node.sourceOrder, $0.id) < ($1.node.sourceOrder, $1.id) }
-        edges = delta.edges.compactMap { edgeDelta in
+        var projectedEdges: [ExportEdge] = delta.edges.compactMap { edgeDelta in
             guard let edge = edgeDelta.new ?? edgeDelta.old else { return nil }
             let mapping = edgeDelta.new == nil ? oldToDelta : newToDelta
             guard let source = mapping[edge.source], let target = mapping[edge.target] else { return nil }
             return ExportEdge(source: source, target: target, edge: edge)
         }
+        projectedEdges += (delta.dataFlow?.edges ?? []).compactMap { edgeDelta in
+            guard let edge = edgeDelta.new ?? edgeDelta.old else { return nil }
+            let mapping = edgeDelta.new == nil ? oldToDelta : newToDelta
+            guard let source = mapping[edge.definition], let target = mapping[edge.use] else { return nil }
+            return ExportEdge(
+                source: source,
+                target: target,
+                edge: FlowEdge(
+                    id: edgeDelta.id,
+                    source: edge.definition,
+                    target: edge.use,
+                    kind: .dataDependency,
+                    label: edge.symbol
+                )
+            )
+        }
+        edges = projectedEdges.sorted { ($0.source, $0.target, $0.edge.id) < ($1.source, $1.target, $1.edge.id) }
     }
 }
