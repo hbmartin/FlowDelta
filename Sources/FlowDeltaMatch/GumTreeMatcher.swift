@@ -23,8 +23,8 @@ public struct GumTreeMatcher: Sendable {
     public func match(old oldRoot: SyntaxNode, new newRoot: SyntaxNode) -> EditScript {
         let oldNodes = oldRoot.descendants
         let newNodes = newRoot.descendants
-        let oldByID = Dictionary(uniqueKeysWithValues: oldNodes.map { ($0.id, $0) })
-        let newByID = Dictionary(uniqueKeysWithValues: newNodes.map { ($0.id, $0) })
+        let oldByID = nodeIndex(oldNodes, side: "old")
+        let newByID = nodeIndex(newNodes, side: "new")
         let oldParents = parentMap(root: oldRoot)
         let newParents = parentMap(root: newRoot)
         var oldToNew: [StableID: StableID] = [:]
@@ -239,11 +239,30 @@ public struct GumTreeMatcher: Sendable {
         var result: [StableID: StableID] = [:]
         func walk(_ node: SyntaxNode) {
             for child in node.children {
-                result[child.id] = node.id
+                if result[child.id] == nil {
+                    result[child.id] = node.id
+                } else {
+                    Self.logger
+                        .error("Duplicate syntax ID while indexing parents: \(child.id.rawValue, privacy: .public)")
+                }
                 walk(child)
             }
         }
         walk(root)
+        return result
+    }
+
+    private func nodeIndex(_ nodes: [SyntaxNode], side: String) -> [StableID: SyntaxNode] {
+        var result: [StableID: SyntaxNode] = [:]
+        for node in nodes {
+            if result[node.id] == nil {
+                result[node.id] = node
+            } else {
+                Self.logger.error(
+                    "Duplicate \(side, privacy: .public) syntax ID ignored safely: \(node.id.rawValue, privacy: .public)"
+                )
+            }
+        }
         return result
     }
 

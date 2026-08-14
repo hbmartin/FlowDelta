@@ -53,7 +53,7 @@ public struct SourceSyntaxParser: Sendable {
         let normalized = try normalize(
             root,
             fieldName: nil,
-            path: snapshot.path,
+            identity: SyntaxIdentityContext(path: snapshot.path, ancestry: []),
             index: index,
             nodeCount: &nodeCount,
             errorCount: &errorCount,
@@ -85,7 +85,7 @@ public struct SourceSyntaxParser: Sendable {
     private func normalize(
         _ node: Node,
         fieldName: String?,
-        path: String,
+        identity: SyntaxIdentityContext,
         index: SourceIndex,
         nodeCount: inout Int,
         errorCount: inout Int,
@@ -106,7 +106,7 @@ public struct SourceSyntaxParser: Sendable {
             try children.append(normalize(
                 child,
                 fieldName: node.fieldNameForChild(at: childIndex),
-                path: path,
+                identity: identity.appending(childIndex),
                 index: index,
                 nodeCount: &nodeCount,
                 errorCount: &errorCount,
@@ -129,11 +129,12 @@ public struct SourceSyntaxParser: Sendable {
             id: StableID(
                 namespace: "syntax",
                 components: [
-                    path,
+                    identity.path,
                     kind,
                     String(range.start.utf16Offset),
                     String(range.end.utf16Offset),
-                    fieldName ?? ""
+                    fieldName ?? "",
+                    identity.ancestry.map(String.init).joined(separator: ".")
                 ]
             ),
             kind: kind,
@@ -145,5 +146,14 @@ public struct SourceSyntaxParser: Sendable {
             hasError: node.hasError,
             children: children
         )
+    }
+}
+
+private struct SyntaxIdentityContext {
+    let path: String
+    let ancestry: [Int]
+
+    func appending(_ childIndex: Int) -> SyntaxIdentityContext {
+        SyntaxIdentityContext(path: path, ancestry: ancestry + [childIndex])
     }
 }

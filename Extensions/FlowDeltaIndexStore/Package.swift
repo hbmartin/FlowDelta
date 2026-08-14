@@ -27,7 +27,11 @@ let package = Package(
         ),
         .testTarget(
             name: "FlowDeltaIndexStoreTests",
-            dependencies: ["FlowDeltaIndexStore", .product(name: "FlowDeltaCore", package: "FlowDelta")]
+            dependencies: [
+                "FlowDeltaIndexStore",
+                .product(name: "FlowDeltaCore", package: "FlowDelta"),
+                .product(name: "IndexStoreDB", package: "indexstore-db")
+            ]
         )
     ],
     swiftLanguageModes: [.v6]

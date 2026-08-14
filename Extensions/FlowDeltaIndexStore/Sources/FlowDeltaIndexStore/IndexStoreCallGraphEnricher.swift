@@ -45,7 +45,7 @@ public final class IndexStoreCallGraphEnricher: CallGraphEnriching, @unchecked S
         storePath: String,
         databasePath: String,
         libraryPath: String,
-        readonly: Bool = true
+        readonly: Bool = false
     ) throws {
         let library = try IndexStoreLibrary(dylibPath: libraryPath)
         self.library = library
@@ -58,7 +58,7 @@ public final class IndexStoreCallGraphEnricher: CallGraphEnriching, @unchecked S
         )
     }
 
-    public convenience init(configuration: IndexStoreConfiguration, readonly: Bool = true) throws {
+    public convenience init(configuration: IndexStoreConfiguration, readonly: Bool = false) throws {
         try self.init(
             storePath: configuration.storePath,
             databasePath: configuration.databasePath,
@@ -72,22 +72,67 @@ public final class IndexStoreCallGraphEnricher: CallGraphEnriching, @unchecked S
         defer { lock.unlock() }
         var nodes = Dictionary(uniqueKeysWithValues: graph.nodes.map { ($0.id, $0) })
         var edges = Dictionary(uniqueKeysWithValues: graph.edges.map { ($0.id, $0) })
-        let internalByName = Dictionary(grouping: graph.nodes.filter { !$0.external }) { simpleName($0.name) }
-        var externalByName = Dictionary(uniqueKeysWithValues: graph.nodes.filter(\.external).map {
-            (simpleName($0.name), $0.id)
-        })
+        let internalNodes = graph.nodes.filter { !$0.external }
+        let internalByCanonicalName = Dictionary(grouping: internalNodes) { canonicalName($0.name) }
+        let internalBySimpleName = Dictionary(grouping: internalNodes) { simpleName($0.name) }
+        var externalByCanonicalName = Dictionary(grouping: graph.nodes.filter(\.external)) {
+            canonicalName($0.name)
+        }
+        var resolvedUSR: [String: StableID] = [:]
 
-        func nodeID(named name: String) -> StableID {
-            let simple = simpleName(name)
-            if let matches = internalByName[simple], matches.count == 1, let match = matches.first {
-                return match.id
+        func internalNode(at location: SymbolLocation) -> StableID? {
+            let matches = internalNodes.filter { node in
+                guard let path = node.path, let range = node.range else { return false }
+                let indexedPath = URL(fileURLWithPath: location.path).resolvingSymlinksInPath().standardized.path
+                let nodePath = URL(fileURLWithPath: path).resolvingSymlinksInPath().standardized.path
+                let pathMatches = indexedPath == nodePath || indexedPath.hasSuffix("/\(path)")
+                let line = max(0, location.line - 1)
+                return pathMatches && range.start.line <= line && line <= range.end.line
             }
-            if let existing = externalByName[simple] {
+            return matches.count == 1 ? matches.first?.id : nil
+        }
+
+        for path in sourceFiles.sorted() {
+            for occurrence in database.symbolOccurrences(inFilePath: path)
+                where occurrence.roles.contains(.definition) || occurrence.roles.contains(.declaration)
+            {
+                if let nodeID = internalNode(at: occurrence.location) {
+                    resolvedUSR[occurrence.symbol.usr] = nodeID
+                }
+            }
+        }
+
+        func nodeID(for symbol: Symbol) -> StableID {
+            if let existing = resolvedUSR[symbol.usr] {
                 return existing
             }
-            let id = StableID(namespace: "indexstore-call-node", components: [simple])
-            externalByName[simple] = id
-            nodes[id] = CallGraphNode(id: id, name: simple, state: .retained, external: true)
+            let definitions = database.occurrences(ofUSR: symbol.usr, roles: .definition)
+                + database.occurrences(ofUSR: symbol.usr, roles: .declaration)
+            for occurrence in definitions {
+                if let match = internalNode(at: occurrence.location) {
+                    resolvedUSR[symbol.usr] = match
+                    return match
+                }
+            }
+            let canonical = canonicalName(symbol.name)
+            if let matches = internalByCanonicalName[canonical], matches.count == 1, let match = matches.first {
+                resolvedUSR[symbol.usr] = match.id
+                return match.id
+            }
+            let simple = simpleName(symbol.name)
+            if let matches = internalBySimpleName[simple], matches.count == 1, let match = matches.first {
+                resolvedUSR[symbol.usr] = match.id
+                return match.id
+            }
+            if let existing = externalByCanonicalName[canonical]?.map(\.id).min() {
+                resolvedUSR[symbol.usr] = existing
+                return existing
+            }
+            let id = StableID(namespace: "indexstore-call-node", components: [symbol.usr])
+            resolvedUSR[symbol.usr] = id
+            let node = CallGraphNode(id: id, name: symbol.name, state: .retained, external: true)
+            externalByCanonicalName[canonical, default: []].append(node)
+            nodes[id] = node
             return id
         }
 
@@ -96,8 +141,8 @@ public final class IndexStoreCallGraphEnricher: CallGraphEnriching, @unchecked S
                 guard let callerRelation = occurrence.relations.first(where: {
                     $0.roles.contains(.calledBy) || $0.roles.contains(.containedBy)
                 }) else { continue }
-                let caller = nodeID(named: callerRelation.symbol.name)
-                let callee = nodeID(named: occurrence.symbol.name)
+                let caller = nodeID(for: callerRelation.symbol)
+                let callee = nodeID(for: occurrence.symbol)
                 guard caller != callee else { continue }
                 let edge = CallGraphEdge(caller: caller, callee: callee, state: .retained)
                 edges[edge.id] = edges[edge.id] ?? edge
@@ -113,5 +158,9 @@ public final class IndexStoreCallGraphEnricher: CallGraphEnriching, @unchecked S
     private func simpleName(_ name: String) -> String {
         let withoutParameters = name.split(separator: "(", maxSplits: 1).first.map(String.init) ?? name
         return withoutParameters.split(separator: ".").last.map(String.init) ?? withoutParameters
+    }
+
+    private func canonicalName(_ name: String) -> String {
+        name.filter { !$0.isWhitespace }
     }
 }

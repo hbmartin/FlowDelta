@@ -74,7 +74,7 @@ public struct SourceAnalyzer: Sendable {
             ))
         }
 
-        for entity in entities where Self.supportsFlow(entity.kind) {
+        for entity in entities where Self.supportsFlow(entity.kind) && entity.body.kind != "method_signature" {
             do {
                 let graph = try flowBuilder.build(
                     for: entity,

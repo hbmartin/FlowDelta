@@ -13,6 +13,7 @@ public struct LanguageProfile: Hashable, Sendable {
     public let continueKinds: Set<String>
     public let tryKinds: Set<String>
     public let catchKinds: Set<String>
+    public let finallyKinds: Set<String>
     public let callKinds: Set<String>
     public let identifierKinds: Set<String>
 
@@ -31,6 +32,7 @@ public struct LanguageProfile: Hashable, Sendable {
                 continueKinds: ["control_transfer_statement"],
                 tryKinds: ["do_statement"],
                 catchKinds: ["catch_block"],
+                finallyKinds: [],
                 callKinds: ["call_expression"],
                 identifierKinds: ["simple_identifier"]
             )
@@ -46,7 +48,8 @@ public struct LanguageProfile: Hashable, Sendable {
                 breakKinds: ["break_statement"],
                 continueKinds: ["continue_statement"],
                 tryKinds: ["try_statement"],
-                catchKinds: ["catch_clause", "finally_clause"],
+                catchKinds: ["catch_clause"],
+                finallyKinds: ["finally_clause"],
                 callKinds: ["call_expression", "new_expression"],
                 identifierKinds: ["identifier", "property_identifier", "shorthand_property_identifier"]
             )
@@ -62,7 +65,8 @@ public struct LanguageProfile: Hashable, Sendable {
                 breakKinds: ["break_statement"],
                 continueKinds: ["continue_statement"],
                 tryKinds: ["try_statement"],
-                catchKinds: ["except_clause", "finally_clause"],
+                catchKinds: ["except_clause"],
+                finallyKinds: ["finally_clause"],
                 callKinds: ["call"],
                 identifierKinds: ["identifier"]
             )
@@ -79,6 +83,7 @@ public struct LanguageProfile: Hashable, Sendable {
                 continueKinds: ["continue_statement"],
                 tryKinds: [],
                 catchKinds: [],
+                finallyKinds: [],
                 callKinds: ["call_expression"],
                 identifierKinds: ["identifier", "field_identifier", "package_identifier"]
             )

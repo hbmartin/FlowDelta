@@ -42,6 +42,14 @@ public final class FlowSourceView: NSView {
         textView.setSelectedRange(NSRange(location: 0, length: 0))
     }
 
+    public var displayedPath: String? {
+        snapshot?.path
+    }
+
+    public var displayedTitle: String {
+        titleLabel.stringValue
+    }
+
     public func select(_ range: SourceRange?) {
         guard let range, let snapshot else { return }
         let maximum = snapshot.text.utf16.count

@@ -82,7 +82,11 @@ public struct SourceEntityExtractor: Sendable {
             ?? node.firstDescendant(kind: classification.identifierKind)
         let name = normalizedName(nameNode?.text) ?? classification.fallbackName
         let parameters = classification.callable ? parameterClause(in: node) : ""
-        let qualifiedName = (containers + [name + parameters]).joined(separator: ".")
+        let receiver = language == .go && node.kind == "method_declaration"
+            ? goReceiverType(in: node)
+            : nil
+        let qualifiedName = (containers + (receiver.map { [$0] } ?? []) + [name + parameters])
+            .joined(separator: ".")
         let directBody = node.firstChild(fieldName: "body")
         let valueBody = node.firstChild(fieldName: "value")?.firstChild(fieldName: "body")
         let body = directBody ?? valueBody ?? node
@@ -195,6 +199,16 @@ public struct SourceEntityExtractor: Sendable {
         return parameter.text
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .replacingOccurrences(of: "\n", with: " ")
+    }
+
+    private func goReceiverType(in declaration: SyntaxNode) -> String? {
+        guard let receiver = declaration.firstChild(fieldName: "receiver") else { return nil }
+        let text = receiver.text
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "()"))
+        let components = text.split(whereSeparator: { $0.isWhitespace })
+        guard let type = components.last else { return nil }
+        return normalizedName(String(type))
     }
 
     private func normalizedName(_ value: String?) -> String? {

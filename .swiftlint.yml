@@ -7,6 +7,7 @@ included:
   - Extensions
 excluded:
   - .build
+  - Extensions/FlowDeltaIndexStore/.build
   - Tests/FlowDeltaAnalysisTests/Fixtures
 analyzer_rules:
   - unused_declaration

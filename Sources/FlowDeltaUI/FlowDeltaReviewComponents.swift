@@ -23,6 +23,20 @@ extension FlowChangeClassification {
 
 @MainActor
 enum ReviewViewComponents {
+    static func short(_ revision: String) -> String {
+        String(revision.prefix(8))
+    }
+
+    static func color(for kind: EntityChangeKind) -> NSColor {
+        switch kind {
+        case .added: .systemGreen
+        case .removed: .systemRed
+        case .modified: .systemOrange
+        case .moved, .renamed: .systemPurple
+        case .unchanged: .secondaryLabelColor
+        }
+    }
+
     static func makeCell(identifier: NSUserInterfaceItemIdentifier) -> NSTableCellView {
         let cell = NSTableCellView()
         cell.identifier = identifier

@@ -50,6 +50,20 @@ final class MatcherTests: XCTestCase {
         XCTAssertTrue(script.mappings.allSatisfy { $0.confidence.tier == .gumTree })
     }
 
+    func testParserProducesUniqueSyntaxIDsForProductionSource() throws {
+        let repository = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let sourceURL = repository.appendingPathComponent("Sources/FlowDeltaUI/FlowDeltaReviewView.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        let tree = try parser.parse(snapshot(source, path: "Sources/FlowDeltaUI/FlowDeltaReviewView.swift"))
+        let ids = tree.root.descendants.map(\.id)
+
+        XCTAssertEqual(ids.count, Set(ids).count)
+        _ = GumTreeMatcher().match(old: tree.root, new: tree.root)
+    }
+
     private func entities(_ source: String) throws -> [SourceEntity] {
         let tree = try parser.parse(snapshot(source))
         return extractor.entities(in: tree)

@@ -6,6 +6,7 @@ public enum GitRevisionProviderError: Error, Equatable, Sendable, CustomStringCo
     case repositoryNotFound(String)
     case gitFailed(arguments: [String], status: Int32, message: String)
     case invalidUTF8(context: String)
+    case unsupportedSourcePath(String)
     case malformedNameStatus
     case changedFileLimitExceeded(limit: Int, actual: Int)
     case blobLimitExceeded(path: String, limit: Int, actual: Int)
@@ -18,6 +19,8 @@ public enum GitRevisionProviderError: Error, Equatable, Sendable, CustomStringCo
             "git \(arguments.joined(separator: " ")) failed with status \(status): \(message)"
         case let .invalidUTF8(context):
             "Git returned non-UTF-8 data for \(context)."
+        case let .unsupportedSourcePath(path):
+            "Unsupported source path passed through revision filtering: \(path)."
         case .malformedNameStatus:
             "Git returned malformed NUL-delimited name-status data."
         case let .changedFileLimitExceeded(limit, actual):
@@ -80,7 +83,13 @@ public struct GitCLIRevisionProvider: RevisionProvider, Sendable {
         files.reserveCapacity(records.count)
         for record in records {
             try Task.checkCancellation()
-            let oldSnapshot = try record.oldPath.map { path in
+            let supportedOldPath = record.oldPath.flatMap { path in
+                SourceLanguage(path: path) == nil ? nil : path
+            }
+            let supportedNewPath = record.newPath.flatMap { path in
+                SourceLanguage(path: path) == nil ? nil : path
+            }
+            let oldSnapshot = try supportedOldPath.map { path in
                 try loadSnapshot(
                     path: path,
                     revision: canonicalBase,
@@ -88,7 +97,7 @@ public struct GitCLIRevisionProvider: RevisionProvider, Sendable {
                     limits: limits
                 )
             }
-            let newSnapshot = try record.newPath.map { path in
+            let newSnapshot = try supportedNewPath.map { path in
                 try loadSnapshot(
                     path: path,
                     revision: canonicalTarget,
@@ -136,7 +145,7 @@ public struct GitCLIRevisionProvider: RevisionProvider, Sendable {
             throw GitRevisionProviderError.invalidUTF8(context: path)
         }
         guard let language = SourceLanguage(path: path) else {
-            preconditionFailure("Unsupported source path passed through revision filtering: \(path)")
+            throw GitRevisionProviderError.unsupportedSourcePath(path)
         }
         return SourceSnapshot(
             path: path,

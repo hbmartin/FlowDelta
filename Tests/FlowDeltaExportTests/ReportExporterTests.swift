@@ -37,6 +37,18 @@ final class ReportExporterTests: XCTestCase {
         XCTAssertTrue(value.contains("control + data context"))
     }
 
+    func testMarkdownOmitsContextBasisWhenNoNodesAreAffected() {
+        let report = RevisionFlowDeltaReport(
+            base: RevisionIdentity("base"),
+            target: RevisionIdentity("target"),
+            files: []
+        )
+        let value = FlowDeltaReportExporter().markdown(report)
+
+        XCTAssertFalse(value.contains("Affected nodes in this report use"))
+        XCTAssertFalse(value.contains("** context**"))
+    }
+
     func testTableContainsTriageBeforeFunctionSummary() throws {
         let value = FlowDeltaReportExporter().table(makeReport())
 
