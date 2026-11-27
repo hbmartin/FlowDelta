@@ -145,7 +145,9 @@ struct FlowNoiseClassifier {
     }
 
     private static func isSingleOperand(_ tokens: [String]) -> Bool {
-        if tokens.count == 1 { return true }
+        if tokens.count == 1 {
+            return true
+        }
         let syntax = tokens.map(Optional.some)
         return tokens.first == "(" && closingIndex(ofOpeningAt: 0, in: syntax) == syntax.count - 1
     }
