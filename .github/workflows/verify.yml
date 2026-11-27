@@ -23,6 +23,10 @@ jobs:
       - name: Test IndexStore extension
         run: swift test --package-path Extensions/FlowDeltaIndexStore
       - name: Coverage
+        # xcodebuild passes only TEST_RUNNER_-prefixed variables to tests, so this is how they see CI=true and
+        # skip the AppKit image snapshot, which is verified on the recording host.
+        env:
+          TEST_RUNNER_CI: "true"
         run: |
           mkdir -p build
           xcodebuild test \

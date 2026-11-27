@@ -94,4 +94,24 @@ final class FlowDeltaReviewStateTests: XCTestCase {
         XCTAssertNil(target.selectedStableID, "Hiding the target graph clears its selection")
         XCTAssertNil(view.state.selectedNodeStableID)
     }
+
+    func testTriageNamesARemovedEntityByItsBaseDeclaration() throws {
+        let view = FlowDeltaReviewView(frame: CGRect(x: 0, y: 0, width: 1280, height: 820))
+        try view.display(makeShippingReport())
+        let table = try XCTUnwrap(view.descendants(of: NSTableView.self).first {
+            $0.accessibilityIdentifier() == "FlowDelta.Review.Triage"
+        })
+        let change = try XCTUnwrap(table.tableColumns.first { $0.identifier.rawValue == "change" })
+        let name = try XCTUnwrap(table.tableColumns.first { $0.identifier.rawValue != "change" })
+        let rows = (0 ..< view.numberOfRows(in: table)).map { row in
+            [change, name].map { column in
+                (view.tableView(table, viewFor: column, row: row) as? NSTableCellView)?.textField?.stringValue ?? ""
+            }
+        }
+        let removed = try XCTUnwrap(rows.first { $0.first == "Removed" }, "\(rows)")
+        XCTAssertTrue(
+            removed[1].contains("legacyDiscount"),
+            "A removed entity has no new side, so it is named by its base: \(removed)"
+        )
+    }
 }
