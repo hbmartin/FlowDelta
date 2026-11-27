@@ -5,6 +5,42 @@ import Foundation
 /// Decides whether a paired node changed and, when it did, whether the change is noise. It compares the tokens of
 /// the node's syntax, because labels collapse whitespace and are truncated.
 struct FlowNoiseClassifier {
+    enum TokenRole {
+        case syntax
+        case literal
+        case statementTerminator
+    }
+
+    struct Token: Equatable {
+        let text: String
+        let kind: String?
+        let role: TokenRole
+
+        init(_ text: String, kind: String? = nil, role: TokenRole = .syntax) {
+            self.text = text
+            self.kind = kind
+            self.role = role
+        }
+
+        var syntaxText: String? {
+            role == .literal ? nil : text
+        }
+
+        static func == (lhs: Self, rhs: Self) -> Bool {
+            lhs.kind == rhs.kind && lhs.role == rhs.role && lhs.text.utf8.elementsEqual(rhs.text.utf8)
+        }
+    }
+
+    private enum StatementBoundary: Equatable {
+        case start(kind: String, field: String?)
+        case end
+    }
+
+    private struct NodeSyntax {
+        var tokens: [Token] = []
+        var statementBoundaries: [StatementBoundary] = []
+    }
+
     private let rules: LanguageNoiseRules?
     private let oldSyntax: [StableID: SyntaxNode]
     private let newSyntax: [StableID: SyntaxNode]
@@ -19,22 +55,23 @@ struct FlowNoiseClassifier {
     func classify(old: FlowNode, new: FlowNode) -> (state: DeltaState, noise: FlowNoiseLevel?) {
         guard old.kind == new.kind else { return (.modified, nil) }
         guard let rules,
-              let oldTokens = tokens(of: old, in: oldSyntax, rules: rules),
-              let newTokens = tokens(of: new, in: newSyntax, rules: rules)
+              let oldSyntax = nodeSyntax(of: old, in: oldSyntax, rules: rules),
+              let newSyntax = nodeSyntax(of: new, in: newSyntax, rules: rules)
         else {
             return (old.label == new.label ? .retained : .modified, nil)
         }
-        if old.label == new.label, oldTokens == newTokens {
+        guard oldSyntax.statementBoundaries == newSyntax.statementBoundaries else { return (.modified, nil) }
+        if old.label == new.label, oldSyntax.tokens == newSyntax.tokens {
             return (.retained, nil)
         }
         // Equal labels with different tokens are an edit past the label's truncation point.
         return (
             .modified,
-            Self.level(old: oldTokens, new: newTokens, rules: rules, isCondition: old.kind == .condition)
+            Self.level(old: oldSyntax.tokens, new: newSyntax.tokens, rules: rules, isCondition: old.kind == .condition)
         )
     }
 
-    static func level(old: [String], new: [String], rules: LanguageNoiseRules, isCondition: Bool) -> FlowNoiseLevel? {
+    static func level(old: [Token], new: [Token], rules: LanguageNoiseRules, isCondition: Bool) -> FlowNoiseLevel? {
         if old == new {
             return .formatting
         }
@@ -43,7 +80,11 @@ struct FlowNoiseClassifier {
         if optionalOld == optionalNew {
             return .optionalSyntax
         }
-        if canonicalRewrite(optionalOld) == canonicalRewrite(optionalNew) {
+        let oldText = optionalOld.compactMap(\.syntaxText)
+        let newText = optionalNew.compactMap(\.syntaxText)
+        if oldText.count == optionalOld.count, newText.count == optionalNew.count,
+           oldText != newText, canonicalRewrite(oldText) == canonicalRewrite(newText)
+        {
             return .rewrite
         }
         return nil
@@ -54,31 +95,35 @@ struct FlowNoiseClassifier {
 
     /// Drops optional tokens, optional receivers, trailing commas and one pair of parentheses around a condition.
     /// A comma right after an opening bracket or another comma is an array hole and stays.
-    static func withoutOptionalSyntax(_ tokens: [String], rules: LanguageNoiseRules, isCondition: Bool) -> [String] {
-        var result: [String] = []
+    static func withoutOptionalSyntax(_ tokens: [Token], rules: LanguageNoiseRules, isCondition: Bool) -> [Token] {
+        var result: [Token] = []
         var index = 0
         while index < tokens.count {
             let token = tokens[index]
-            let next = index + 1 < tokens.count ? tokens[index + 1] : nil
-            let previous = index > 0 ? tokens[index - 1] : nil
+            let next = index + 1 < tokens.count ? tokens[index + 1].syntaxText : nil
+            let previous = index > 0 ? tokens[index - 1].syntaxText : nil
             defer { index += 1 }
-            if rules.optionalTokens.contains(token) {
+            guard let syntax = token.syntaxText else {
+                result.append(token)
+                continue
+            }
+            if token.role == .statementTerminator, rules.optionalTokens.contains(syntax) {
                 continue
             }
             // `self.value` is `value`, but `other.self.value` keeps its `self`.
-            if rules.optionalReceivers.contains(token), next == ".", index == 0 || tokens[index - 1] != "." {
+            if rules.optionalReceivers.contains(syntax), next == ".", previous != "." {
                 index += 1
                 continue
             }
-            if rules.allowsTrailingCommas, token == ",", let next, [")", "]", "}"].contains(next),
-               let previous, !["(", "[", "{", ","].contains(previous)
+            if rules.allowsTrailingCommas, syntax == ",", let next, [")", "]", "}"].contains(next),
+               index > 0, !["(", "[", "{", ","].contains(previous ?? "")
             {
                 continue
             }
             result.append(token)
         }
-        if isCondition, result.first == "(", result.last == ")",
-           closingIndex(ofOpeningAt: 0, in: result) == result.count - 1
+        if isCondition, result.first?.syntaxText == "(", result.last?.syntaxText == ")",
+           closingIndex(ofOpeningAt: 0, in: result.map(\.syntaxText)) == result.count - 1
         {
             result = Array(result.dropFirst().dropLast())
         }
@@ -100,10 +145,14 @@ struct FlowNoiseClassifier {
     }
 
     private static func isSingleOperand(_ tokens: [String]) -> Bool {
-        tokens.count == 1 || (tokens.first == "(" && closingIndex(ofOpeningAt: 0, in: tokens) == tokens.count - 1)
+        if tokens.count == 1 {
+            return true
+        }
+        let syntax = tokens.map(Optional.some)
+        return tokens.first == "(" && closingIndex(ofOpeningAt: 0, in: syntax) == syntax.count - 1
     }
 
-    private static func closingIndex(ofOpeningAt start: Int, in tokens: [String]) -> Int? {
+    private static func closingIndex(ofOpeningAt start: Int, in tokens: [String?]) -> Int? {
         var depth = 0
         for index in start ..< tokens.count {
             if tokens[index] == "(" {
@@ -118,8 +167,12 @@ struct FlowNoiseClassifier {
         return nil
     }
 
-    /// The node's tokens in source order, or nil when any of its syntax is missing.
-    private func tokens(of node: FlowNode, in syntax: [StableID: SyntaxNode], rules: LanguageNoiseRules) -> [String]? {
+    /// The node's syntax in source order, or nil when any of its syntax is missing.
+    private func nodeSyntax(
+        of node: FlowNode,
+        in syntax: [StableID: SyntaxNode],
+        rules: LanguageNoiseRules
+    ) -> NodeSyntax? {
         var roots: [SyntaxNode] = []
         for id in node.syntaxIDs {
             guard let root = syntax[id] else { return nil }
@@ -128,31 +181,75 @@ struct FlowNoiseClassifier {
         let outermost = roots.filter { root in
             !roots.contains { other in other.id != root.id && Self.contains(other.range, root.range) }
         }
-        return outermost
-            .sorted { ($0.range.start.utf16Offset, $0.id) < ($1.range.start.utf16Offset, $1.id) }
-            .flatMap { Self.tokens(of: $0, rules: rules) }
+        var result = NodeSyntax()
+        for root in outermost
+            .sorted(by: { ($0.range.start.utf16Offset, $0.id) < ($1.range.start.utf16Offset, $1.id) })
+        {
+            Self.collectSyntax(of: root, parent: nil, rules: rules, into: &result)
+        }
+        return result
     }
 
     private static func contains(_ outer: SourceRange, _ inner: SourceRange) -> Bool {
         outer.start <= inner.start && inner.end <= outer.end
     }
 
-    /// A node's tokens: comments drop out, a literal is one token with its exact text, and the comma of a
-    /// one-element tuple becomes `tupleComma`.
-    static func tokens(of node: SyntaxNode, rules: LanguageNoiseRules) -> [String] {
+    static func tokens(of node: SyntaxNode, rules: LanguageNoiseRules) -> [Token] {
+        var result = NodeSyntax()
+        collectSyntax(of: node, parent: nil, rules: rules, into: &result)
+        return result.tokens
+    }
+
+    private static let terminatedStatements: Set<String> = [
+        "break_statement", "continue_statement", "debugger_statement", "do_statement", "export_statement",
+        "expression_statement", "import_statement", "lexical_declaration", "return_statement", "throw_statement",
+        "type_alias_declaration", "variable_declaration"
+    ]
+
+    private static let statementLists: Set<String> = ["block", "source_file", "statement_block", "statements"]
+
+    private static func collectSyntax(
+        of node: SyntaxNode,
+        parent: SyntaxNode?,
+        rules: LanguageNoiseRules,
+        into result: inout NodeSyntax
+    ) {
         if rules.commentKinds.contains(node.kind) {
-            return []
+            return
         }
         if rules.literalKinds.contains(node.kind) {
-            return literalToken(of: node).map { [$0] } ?? []
+            if let text = literalToken(of: node) {
+                result.tokens.append(Token(text, kind: node.kind, role: .literal))
+            }
+            return
+        }
+        let isStatementBoundary = node.kind.hasSuffix("_statement") || node.kind.hasSuffix("_declaration")
+            || statementLists.contains(node.kind) || node.kind == "else_clause"
+        if isStatementBoundary {
+            result.statementBoundaries.append(.start(kind: node.kind, field: node.fieldName))
+        }
+        defer {
+            if isStatementBoundary {
+                result.statementBoundaries.append(.end)
+            }
         }
         if node.children.isEmpty {
-            let token = node.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            return token.isEmpty ? [] : [token]
+            let text = node.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty else { return }
+            let terminator = text == ";" && !node.isNamed && parent.map { parent in
+                parent.fieldName != "initializer"
+                    && (terminatedStatements.contains(parent.kind) || statementLists.contains(parent.kind))
+            } == true
+            result.tokens.append(Token(text, kind: node.kind, role: terminator ? .statementTerminator : .syntax))
+            return
         }
         let tupleComma = singletonTupleComma(in: node, rules: rules)
-        return node.children.indices.flatMap { index in
-            index == tupleComma ? [Self.tupleComma] : tokens(of: node.children[index], rules: rules)
+        for index in node.children.indices {
+            if index == tupleComma {
+                result.tokens.append(Token(Self.tupleComma, kind: ","))
+            } else {
+                collectSyntax(of: node.children[index], parent: node, rules: rules, into: &result)
+            }
         }
     }
 

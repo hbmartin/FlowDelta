@@ -357,8 +357,51 @@ final class FlowDeltaReviewViewTests: XCTestCase {
         let table = try XCTUnwrap(view.descendants(of: NSTableView.self).first)
         let graph = try XCTUnwrap(table.nextKeyView as? FlowGraphView)
         XCTAssertEqual(graph.accessibilityIdentifier(), "FlowDelta.Review.Graph")
+        XCTAssertEqual(graph.nextKeyView?.accessibilityIdentifier(), "FlowDelta.Review.Source")
+        view.setPresentation(.beforeAfter)
         XCTAssertEqual(graph.nextKeyView?.accessibilityIdentifier(), "FlowDelta.Review.ComparisonGraph")
         XCTAssertEqual(graph.nextKeyView?.nextKeyView?.accessibilityIdentifier(), "FlowDelta.Review.Source")
+    }
+
+    func testWindowKeepsGraphFocusDuringReviewAndTabsThroughVisiblePanes() throws {
+        let frame = CGRect(x: 0, y: 0, width: 1280, height: 820)
+        let window = NSWindow(contentRect: frame, styleMask: [.titled], backing: .buffered, defer: false)
+        let view = FlowDeltaReviewView(frame: frame)
+        window.contentView = view
+        try view.display(makeShippingReport())
+        let graph = try XCTUnwrap(view.descendants(of: FlowGraphView.self).first)
+        let source = try XCTUnwrap(view.descendants(of: NSTextView.self).first)
+
+        XCTAssertTrue(window.makeFirstResponder(graph))
+        let first = view.selectedGraphNodeStableID
+        window.firstResponder?.keyDown(with: Self.keyEvent(Self.functionKey(NSDownArrowFunctionKey), code: 125))
+        XCTAssertNotEqual(view.selectedGraphNodeStableID, first)
+        XCTAssertTrue(window.firstResponder === graph)
+        window.firstResponder?.keyDown(with: Self.keyEvent(" ", code: 49))
+        XCTAssertEqual(view.sliceDirection, .forward)
+        window.firstResponder?.keyDown(with: Self.keyEvent("\u{1b}", code: 53))
+        XCTAssertNil(view.sliceDirection)
+        window.firstResponder?.keyDown(with: Self.keyEvent(Self.functionKey(NSHomeFunctionKey), code: 115))
+        XCTAssertEqual(view.selectedGraphNodeStableID, first)
+        window.firstResponder?.keyDown(with: Self.keyEvent("\r", code: 36))
+        XCTAssertTrue(window.firstResponder === source)
+
+        view.setPresentation(.beforeAfter)
+        let target = try XCTUnwrap(graph.nextKeyView as? FlowGraphView)
+        XCTAssertTrue(window.makeFirstResponder(graph))
+        window.selectNextKeyView(nil)
+        XCTAssertTrue(window.firstResponder === target)
+        window.selectNextKeyView(nil)
+        XCTAssertTrue(window.firstResponder === source)
+        window.selectPreviousKeyView(nil)
+        XCTAssertTrue(window.firstResponder === target)
+
+        view.setPresentation(.delta)
+        XCTAssertTrue(window.makeFirstResponder(graph))
+        window.selectNextKeyView(nil)
+        XCTAssertTrue(window.firstResponder === source)
+        window.selectPreviousKeyView(nil)
+        XCTAssertTrue(window.firstResponder === graph)
     }
 
     private func perform(_ title: String, in menu: NSMenu) throws {

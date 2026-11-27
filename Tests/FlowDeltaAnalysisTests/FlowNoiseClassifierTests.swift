@@ -4,6 +4,42 @@ import FlowDeltaParse
 import XCTest
 
 final class FlowNoiseClassifierTests: XCTestCase {
+    func testSemicolonsInLiteralsAndEmptyStatementsStayVisible() throws {
+        for (path, language) in [("view.jsx", SourceLanguage.javascript), ("view.tsx", .typescript)] {
+            try assertVisibleBehavior(
+                old: "function View() { return <p>;</p>; }",
+                new: "function View() { return <p></p>; }",
+                path: path,
+                language: language
+            )
+        }
+        try assertVisibleBehavior(
+            old: "function make(ready, work) { return () => { if (ready); work(); }; }",
+            new: "function make(ready, work) { return () => { if (ready) work(); }; }",
+            path: "make.js",
+            language: .javascript
+        )
+        try assertVisibleBehavior(
+            old: "function make(value) { return () => { return\nvalue; }; }",
+            new: "function make(value) { return () => { return value; }; }",
+            path: "make.js",
+            language: .javascript
+        )
+    }
+
+    func testAnOptionalTerminatorDoesNotMakeReorderedControlFlowCosmetic() throws {
+        let report = try analyze(
+            old: "function run() { first(); second(); }",
+            new: "function run() { second(); first() }",
+            path: "run.js",
+            language: .javascript
+        )
+        let function = try XCTUnwrap(report.functionDeltas.first)
+        XCTAssertTrue(function.nodes.contains { $0.noise == .optionalSyntax })
+        XCTAssertTrue(function.edges.contains { $0.state != .retained })
+        XCTAssertEqual(report.concerns?.map(\.kind), [.behavioral])
+    }
+
     func testSwiftNodesAreClassifiedByTheNoiseTheirChangeAmountsTo() throws {
         let nodes = try changedNodes(
             old: """
@@ -216,7 +252,11 @@ final class FlowNoiseClassifierTests: XCTestCase {
             allowsTrailingCommas: true
         )
         func stripped(_ tokens: [String], condition: Bool = false) -> [String] {
-            FlowNoiseClassifier.withoutOptionalSyntax(tokens, rules: swift, isCondition: condition)
+            FlowNoiseClassifier.withoutOptionalSyntax(
+                tokens.map { FlowNoiseClassifier.Token($0) },
+                rules: swift,
+                isCondition: condition
+            ).map(\.text)
         }
         XCTAssertEqual(stripped(["f", "(", "a", ",", ")"]), ["f", "(", "a", ")"])
         XCTAssertEqual(stripped(["[", "a", ",", "b", "]"]), ["[", "a", ",", "b", "]"])
@@ -240,7 +280,12 @@ final class FlowNoiseClassifierTests: XCTestCase {
     func testRewriteRulesOnlyAcceptTokenProvableEquivalences() {
         let swift = LanguageProfile.profile(for: .swift).noise
         func level(_ old: [String], _ new: [String]) -> FlowNoiseLevel? {
-            FlowNoiseClassifier.level(old: old, new: new, rules: swift, isCondition: false)
+            FlowNoiseClassifier.level(
+                old: old.map { FlowNoiseClassifier.Token($0) },
+                new: new.map { FlowNoiseClassifier.Token($0) },
+                rules: swift,
+                isCondition: false
+            )
         }
         XCTAssertEqual(
             level(["a", "=", "a", "-", "(", "b", "+", "c", ")"], ["a", "-=", "(", "b", "+", "c", ")"]),
@@ -255,7 +300,7 @@ final class FlowNoiseClassifierTests: XCTestCase {
         XCTAssertNil(level(["x", "<", "y"], ["y", "<", "x"]))
         XCTAssertNil(level(["x", "==", "y", "+", "1"], ["y", "+", "1", "==", "x"]), "Only a lone comparison commutes")
         XCTAssertEqual(level(["a"], ["a"]), .formatting)
-        XCTAssertEqual(FlowNoiseClassifier.tokens(of: SyntaxNode.leaf("  x  "), rules: swift), ["x"])
+        XCTAssertEqual(FlowNoiseClassifier.tokens(of: SyntaxNode.leaf("  x  "), rules: swift).map(\.text), ["x"])
     }
 
     func testEveryLanguageHasNoiseRules() {
@@ -277,6 +322,19 @@ final class FlowNoiseClassifierTests: XCTestCase {
     }
 
     // MARK: Helpers
+
+    private func assertVisibleBehavior(
+        old: String,
+        new: String,
+        path: String,
+        language: SourceLanguage
+    ) throws {
+        let report = try analyze(old: old, new: new, path: path, language: language)
+        let filtered = FlowNoiseFilter.apply(.hideCosmetic, to: report)
+        XCTAssertTrue(filtered.functionDeltas.flatMap(\.nodes).contains { $0.state == .modified && $0.noise == nil })
+        XCTAssertEqual(report.concerns?.map(\.kind), [.behavioral])
+        XCTAssertFalse(FlowWalkthrough.steps(for: report, policy: .hideCosmetic).isEmpty)
+    }
 
     /// The changed nodes keyed by their new label.
     private func changedNodes(

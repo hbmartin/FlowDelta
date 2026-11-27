@@ -71,7 +71,7 @@ extension FlowDeltaReviewView {
         groupCheckbox.nextKeyView = walkthroughButton
         walkthroughButton.nextKeyView = tableView
         tableView.nextKeyView = graphView
-        graphView.nextKeyView = comparisonGraphView
-        comparisonGraphView.nextKeyView = sourceView.textView
+        graphView.nextKeyView = comparisonGraphIsVisible ? comparisonGraphView : sourceView.textView
+        comparisonGraphView.nextKeyView = comparisonGraphIsVisible ? sourceView.textView : nil
     }
 }

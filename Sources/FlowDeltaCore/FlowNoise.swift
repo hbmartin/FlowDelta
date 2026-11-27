@@ -111,6 +111,7 @@ public enum FlowNoiseFilter {
     /// The highest noise level of a function's changed nodes, or nil when some change is real. A function whose
     /// changes are all noise at or below `.optionalSyntax` is cosmetic; all rewrites make it a refactoring.
     public static func noiseLevel(of function: FunctionFlowDelta) -> FlowNoiseLevel? {
+        guard function.edges.allSatisfy({ $0.state == .retained }) else { return nil }
         let changed = function.nodes.filter { $0.state == .added || $0.state == .removed || $0.state == .modified }
         guard !changed.isEmpty else { return nil }
         var highest: FlowNoiseLevel = .formatting
