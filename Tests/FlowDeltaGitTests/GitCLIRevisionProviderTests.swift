@@ -235,6 +235,56 @@ final class GitCLIRevisionProviderTests: XCTestCase {
         }
     }
 
+    func testCancellingKillsGitThatIgnoresTermination() async throws {
+        let repository = try TemporaryGitRepository()
+        let started = repository.url.appendingPathComponent("stubborn-started")
+        let executable = repository.url.appendingPathComponent("stubborn-git")
+        // The wrapper ignores SIGTERM, closes its output and keeps running, so only SIGKILL ends it.
+        try Data(
+            "#!/bin/sh\ntrap '' TERM\nexec 1>&- 2>&-\necho $$ > '\(started.path)'\nwhile :; do /bin/sleep 1; done\n"
+                .utf8
+        ).write(to: executable, options: .atomic)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+
+        let comparison = Task {
+            try await GitCLIRevisionProvider(executableURL: executable).comparison(
+                repositoryURL: repository.url,
+                base: "HEAD^",
+                target: "HEAD"
+            )
+        }
+        let deadline = Date().addingTimeInterval(10)
+        var pid: pid_t?
+        while pid == nil, Date() < deadline {
+            pid = (try? String(contentsOf: started, encoding: .utf8))
+                .flatMap { pid_t($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
+            await Task.yield()
+        }
+        let wrapper = try XCTUnwrap(pid, "git never started")
+        try await Task.sleep(for: .milliseconds(300))
+        let cancelled = Date()
+        comparison.cancel()
+
+        let finished = Task {
+            do {
+                _ = try await comparison.value
+                return false
+            } catch {
+                return error is CancellationError
+            }
+        }
+        // If the provider never escalates, end the wrapper here so the test reports a failure instead of hanging.
+        let watchdog = Task {
+            try await Task.sleep(for: .seconds(15))
+            kill(wrapper, SIGKILL)
+        }
+        let threwCancellation = await finished.value
+        watchdog.cancel()
+        XCTAssertTrue(threwCancellation, "Expected the cancelled comparison to throw CancellationError")
+        XCTAssertLessThan(Date().timeIntervalSince(cancelled), 10, "git kept running after it ignored SIGTERM")
+        XCTAssertNotEqual(kill(wrapper, 0), 0, "git was not reaped")
+    }
+
     func testLargeErrorOutputCannotStallGit() async throws {
         let repository = try TemporaryGitRepository()
         let executable = repository.url.appendingPathComponent("noisy-git")

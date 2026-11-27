@@ -244,18 +244,30 @@ private struct NameStatusRecord {
     let newPath: String?
 }
 
-// swift6-safety-justification: the box is immutable, and Process.terminate() may be called from any thread.
+// swift6-safety-justification: the box is immutable, and Process.terminate(), isRunning and kill(2) may be used from
+// any thread.
 /// Hands the running git process to the cancellation handler, which can run on any thread.
 private final class RunningGit: @unchecked Sendable {
+    /// How long git has to exit after SIGTERM before it is killed.
+    static let terminationGracePeriod: DispatchTimeInterval = .seconds(2)
+
+    private static let logger = Logger(subsystem: "com.hbmartin.FlowDelta", category: "Git")
     private let process: Process
 
     init(_ process: Process) {
         self.process = process
     }
 
+    /// Sends SIGTERM, then SIGKILL if git is still running after the grace period, so a git or wrapper that ignores
+    /// SIGTERM cannot keep a cancelled comparison waiting. The waiting caller reaps the process.
     func terminate() {
-        if process.isRunning {
-            process.terminate()
+        guard process.isRunning else { return }
+        let pid = process.processIdentifier
+        process.terminate()
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + Self.terminationGracePeriod) { [self] in
+            guard process.isRunning else { return }
+            Self.logger.error("git \(pid, privacy: .public) ignored SIGTERM; sending SIGKILL")
+            kill(pid, SIGKILL)
         }
     }
 }
