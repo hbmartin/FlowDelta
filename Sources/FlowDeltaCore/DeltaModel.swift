@@ -44,6 +44,8 @@ public struct FlowNodeDelta: Codable, Hashable, Sendable, Identifiable {
     public let state: DeltaState
     public let confidence: MatchConfidence?
     public let causality: [CausalityLink]
+    /// Why a modified node's change may not matter, or nil for a real change. Absent in 0.2 reports.
+    public let noise: FlowNoiseLevel?
 
     public init(
         id: StableID,
@@ -51,7 +53,8 @@ public struct FlowNodeDelta: Codable, Hashable, Sendable, Identifiable {
         new: FlowNode?,
         state: DeltaState,
         confidence: MatchConfidence? = nil,
-        causality: [CausalityLink] = []
+        causality: [CausalityLink] = [],
+        noise: FlowNoiseLevel? = nil
     ) {
         self.id = id
         self.old = old
@@ -59,6 +62,20 @@ public struct FlowNodeDelta: Codable, Hashable, Sendable, Identifiable {
         self.state = state
         self.confidence = confidence
         self.causality = causality
+        self.noise = noise
+    }
+
+    /// The same node with a different state and causality, as a noise filter shows it.
+    public func with(state: DeltaState, causality: [CausalityLink]) -> FlowNodeDelta {
+        FlowNodeDelta(
+            id: id,
+            old: old,
+            new: new,
+            state: state,
+            confidence: confidence,
+            causality: causality,
+            noise: noise
+        )
     }
 }
 

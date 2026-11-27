@@ -19,7 +19,8 @@ public struct MatchedFlowDeltaBuilder: Sendable {
         var nodeDeltas = buildNodeDeltas(
             pairs: pairs,
             oldGraph: oldGraph,
-            newGraph: newGraph
+            newGraph: newGraph,
+            noise: FlowNoiseClassifier(entityChange: entityChange)
         )
         let edgeDeltas = buildEdgeDeltas(
             pairs: pairs,
@@ -142,17 +143,20 @@ public struct MatchedFlowDeltaBuilder: Sendable {
     private func buildNodeDeltas(
         pairs: [NodePair],
         oldGraph: ControlFlowGraph?,
-        newGraph: ControlFlowGraph?
+        newGraph: ControlFlowGraph?,
+        noise: FlowNoiseClassifier
     ) -> [FlowNodeDelta] {
         let oldPaired = Set(pairs.map(\.old.id))
         let newPaired = Set(pairs.map(\.new.id))
         var drafts: [NodeDraft] = pairs.map { pair in
-            NodeDraft(
+            let classification = noise.classify(old: pair.old, new: pair.new)
+            return NodeDraft(
                 id: deltaNodeID(old: pair.old.id, new: pair.new.id),
                 old: pair.old,
                 new: pair.new,
-                state: pair.old.kind == pair.new.kind && pair.old.label == pair.new.label ? .retained : .modified,
-                confidence: pair.confidence
+                state: classification.state,
+                confidence: pair.confidence,
+                noise: classification.noise
             )
         }
         drafts.append(contentsOf: (oldGraph?.nodes ?? []).filter { !oldPaired.contains($0.id) }.map {
@@ -216,7 +220,8 @@ public struct MatchedFlowDeltaBuilder: Sendable {
                 new: draft.new,
                 state: draft.state,
                 confidence: draft.confidence,
-                causality: draft.causality
+                causality: draft.causality,
+                noise: draft.noise
             )
         }
     }
@@ -364,7 +369,8 @@ public struct MatchedFlowDeltaBuilder: Sendable {
                 new: node.new,
                 state: .affected,
                 confidence: node.confidence,
-                causality: node.causality + links
+                causality: node.causality + links,
+                noise: node.noise
             )
         }
     }
@@ -448,5 +454,6 @@ private struct NodeDraft {
     let new: FlowNode?
     var state: DeltaState
     let confidence: MatchConfidence?
+    var noise: FlowNoiseLevel?
     var causality: [CausalityLink] = []
 }
