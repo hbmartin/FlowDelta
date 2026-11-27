@@ -85,14 +85,14 @@ Evidence: `notes/006-m1-validation.md`.
 
 The human review timing exercise is a follow-up dogfood metric, not a release gate.
 
-### M2 — multi-language, data flow, and GitX (package complete; GitX consumer gate pending)
+### M2 — multi-language, data flow, and GitX (complete)
 
 - TypeScript/JavaScript, Python, and Go CFG mappings.
 - Swift and TypeScript/JavaScript def-use deltas, data-context affected state, and backward slices.
 - Call-graph neighborhood and separately resolved optional IndexStoreDB enrichment.
 - GitX History Flow tab through exact-pinned package and thin adapter.
 
-Package evidence: `notes/009-m2-validation.md`. GitX integration evidence is maintained in the consuming repository.
+Package evidence: `notes/009-m2-validation.md` and `notes/010-m2-release-boundary-correction.md`. GitX resolved the pushed exact 0.2.2 tag and passed its full consumer gate; that evidence is in GitX `notes/002-flowdelta-m2-validation.md`. Closeout: `notes/011-m2-closeout.md`.
 
 ### M3 — depth and polish
 
@@ -116,7 +116,7 @@ Package evidence: `notes/009-m2-validation.md`. GitX integration evidence is mai
 - CLI table, JSON, Mermaid, and Markdown smoke artifacts are generated from real history and structurally checked.
 - The pinned formatter and strict linter pass; library coverage stays above the ratcheted floor.
 - A current native diagnostic still is inspected; no screen recording is required.
-- The corrected `0.2.1` is tagged only after root, extension, and clean exact-pin consumer gates are green; GitX then replaces its local `../FlowDelta` development override with the exact remote pin.
+- The corrected `0.2.2` (superseding `0.2.1`; see `notes/010-m2-release-boundary-correction.md`) is tagged only after root, extension, and clean exact-pin consumer gates are green; GitX then replaces its local `../FlowDelta` development override with the exact remote pin.
 
 ## Constraints and accepted risks
 
