@@ -72,7 +72,12 @@ extension FlowDeltaCommand {
     }
 }
 
-extension FlowNoisePolicy: ExpressibleByArgument {}
+extension FlowNoisePolicy: ExpressibleByArgument {
+    /// Help shows the spelling `--noise` accepts rather than the Swift case name.
+    public var defaultValueDescription: String {
+        rawValue
+    }
+}
 
 private final class BlockingResult<Value>: @unchecked Sendable {
     private let condition = NSCondition()

@@ -46,4 +46,10 @@ final class FlowDeltaCommandTests: XCTestCase {
         XCTAssertThrowsError(try FlowDeltaCommand.parse(["--noise", "hide-everything", "base"]))
         XCTAssertEqual(FlowDeltaCommand.configuration.version, "0.3.0")
     }
+
+    func testHelpShowsTheNoiseDefaultAsTheSpellingTheParserAccepts() throws {
+        let help = FlowDeltaCommand.helpMessage(columns: 1000)
+        XCTAssertTrue(help.contains("(default: show-all)"), help)
+        XCTAssertEqual(try FlowDeltaCommand.parse(["--noise", "show-all", "base"]).exportOptions, .default)
+    }
 }
