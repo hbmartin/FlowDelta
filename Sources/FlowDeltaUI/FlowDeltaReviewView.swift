@@ -42,6 +42,10 @@ public final class FlowDeltaReviewView: NSView, NSTableViewDataSource, NSTableVi
     var currentLayout: GraphLayoutResult?
     var currentFile: FileFlowDelta?
     var callNodesByID: [StableID: CallGraphNode] = [:]
+    /// Follows review state changes and supplies extra graph node menu items.
+    public weak var delegate: (any FlowDeltaReviewViewDelegate)?
+    var hostChangeDepth = 0
+    var lastReportedState: FlowReviewState?
 
     override public init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -54,6 +58,10 @@ public final class FlowDeltaReviewView: NSView, NSTableViewDataSource, NSTableVi
     }
 
     public func display(_ report: RevisionFlowDeltaReport) {
+        performHostChange { show(report) }
+    }
+
+    private func show(_ report: RevisionFlowDeltaReport) {
         currentReport = report
         revisionLabel.stringValue = "\(ReviewViewComponents.short(report.base.value)) → \(ReviewViewComponents.short(report.target.value))"
         summaryLabel.stringValue = FlowReviewSummary.text(for: report)
@@ -131,31 +139,41 @@ public final class FlowDeltaReviewView: NSView, NSTableViewDataSource, NSTableVi
 
     public func selectTriageRow(_ row: Int) {
         guard rows.indices.contains(row) else { return }
-        tableView.selectRowIndexes([row], byExtendingSelection: false)
-        show(row: rows[row])
+        performHostChange {
+            tableView.selectRowIndexes([row], byExtendingSelection: false)
+            show(row: rows[row])
+        }
     }
 
     public func selectGraphNode(withStableID stableID: String) {
-        graphView.selectNode(withStableID: stableID)
-        flowGraphView(graphView, didSelectNodeWithStableID: stableID)
+        performHostChange {
+            graphView.selectNode(withStableID: stableID)
+            flowGraphView(graphView, didSelectNodeWithStableID: stableID)
+        }
     }
 
+    /// Selects the forward direction and shows or hides the slice. Prefer `setSlice(_:)`.
     public func setForwardSliceEnabled(_ enabled: Bool) {
-        sliceDirectionControl.selectedSegment = 0
-        sliceButton.state = enabled ? .on : .off
-        updateSliceFocus()
+        setSliceDirection(.forward, enabled: enabled)
     }
 
+    /// Selects the backward direction and shows or hides the slice. Prefer `setSlice(_:)`.
     public func setBackwardSliceEnabled(_ enabled: Bool) {
-        sliceDirectionControl.selectedSegment = 1
-        sliceButton.state = enabled ? .on : .off
-        updateSliceFocus()
+        setSliceDirection(.backward, enabled: enabled)
     }
 
+    /// The presentation as an integer. Prefer `setPresentation(_:)`; out-of-range values are ignored.
     public func setReviewMode(_ mode: Int) {
-        guard (0 ... 2).contains(mode) else { return }
-        modeControl.selectedSegment = mode
-        renderCurrentMode(animated: false)
+        guard let presentation = FlowReviewPresentation(rawValue: mode) else { return }
+        setPresentation(presentation)
+    }
+
+    private func setSliceDirection(_ direction: FlowSliceDirection, enabled: Bool) {
+        performHostChange {
+            sliceDirectionControl.selectedSegment = direction.rawValue
+            sliceButton.state = enabled ? .on : .off
+            updateSliceFocus()
+        }
     }
 
     public func numberOfRows(in tableView: NSTableView) -> Int {
@@ -191,9 +209,11 @@ public final class FlowDeltaReviewView: NSView, NSTableViewDataSource, NSTableVi
         let row = tableView.selectedRow
         guard rows.indices.contains(row) else { return }
         show(row: rows[row])
+        reportStateChange(.user)
     }
 
     public func flowGraphView(_ view: FlowGraphView, didSelectNodeWithStableID stableID: String) {
+        defer { reportStateChange(.user) }
         let id = StableID(rawValue: stableID)
         if let callNode = callNodesByID[id] {
             showSource(for: callNode)

@@ -27,14 +27,17 @@ extension FlowDeltaReviewView {
 
     @objc func reviewModeChanged(_ sender: NSSegmentedControl) {
         renderCurrentMode(animated: false)
+        reportStateChange(.user)
     }
 
     @objc func toggleSlice(_ sender: NSButton) {
         updateSliceFocus()
+        reportStateChange(.user)
     }
 
     @objc func sliceDirectionChanged(_ sender: NSSegmentedControl) {
         updateSliceFocus()
+        reportStateChange(.user)
     }
 
     func updateSliceFocus() {

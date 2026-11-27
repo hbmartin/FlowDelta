@@ -165,6 +165,60 @@ final class FlowDeltaReviewViewTests: XCTestCase {
         XCTAssertNotNil(view.emphasizedGraphNodeStableIDs)
     }
 
+    func testDelegateHearsEachStateChangeOnceWithItsCause() throws {
+        let view = FlowDeltaReviewView(frame: CGRect(x: 0, y: 0, width: 1280, height: 820))
+        let recorder = ReviewStateRecorder()
+        view.delegate = recorder
+        try view.display(makeReport())
+        XCTAssertEqual(recorder.causes, [.host])
+        XCTAssertEqual(recorder.states.last?.presentation, .delta)
+        XCTAssertNil(recorder.states.last?.slice)
+        let functionName = try XCTUnwrap(recorder.states.last?.selectedFunctionName)
+        XCTAssertTrue(view.displayedFunctionName.hasPrefix(functionName), view.displayedFunctionName)
+
+        view.setPresentation(.beforeAfter)
+        XCTAssertEqual(view.presentation, .beforeAfter)
+        XCTAssertEqual(view.reviewMode, 1)
+        XCTAssertTrue(view.comparisonGraphIsVisible)
+        view.setPresentation(.beforeAfter)
+        view.setReviewMode(7)
+        XCTAssertEqual(recorder.causes, [.host, .host], "Unchanged and out-of-range requests report nothing")
+
+        let mode = try XCTUnwrap(view.descendants(of: NSSegmentedControl.self).first {
+            $0.accessibilityLabel() == "Flow presentation"
+        })
+        mode.selectedSegment = FlowReviewPresentation.delta.rawValue
+        XCTAssertTrue(mode.sendAction(mode.action, to: mode.target))
+        XCTAssertEqual(recorder.causes.last, .user)
+        XCTAssertEqual(recorder.states.last?.presentation, .delta)
+
+        let node = try XCTUnwrap(view.sourceBackedNodeStableIDs.first)
+        view.selectGraphNode(withStableID: node)
+        XCTAssertEqual(recorder.states.last?.selectedNodeStableID, node)
+        XCTAssertEqual(recorder.causes.last, .host)
+
+        view.setSlice(.backward)
+        XCTAssertEqual(view.sliceDirection, .backward)
+        XCTAssertNotNil(view.emphasizedGraphNodeStableIDs)
+        view.setSlice(nil)
+        XCTAssertNil(view.sliceDirection)
+        view.setForwardSliceEnabled(true)
+        XCTAssertEqual(recorder.states.last?.slice, .forward)
+        view.setBackwardSliceEnabled(false)
+        XCTAssertNil(recorder.states.last?.slice)
+        XCTAssertEqual(recorder.causes.suffix(4), [.host, .host, .host, .host])
+
+        let slice = try XCTUnwrap(view.descendants(of: NSButton.self).first { $0.title == "Slice" })
+        slice.performClick(nil)
+        XCTAssertEqual(recorder.causes.last, .user)
+        XCTAssertEqual(recorder.states.last?.slice, .backward)
+
+        view.selectTriageRow(view.nonCallableTriageRows.first ?? 0)
+        XCTAssertEqual(recorder.causes.last, .host)
+        XCTAssertEqual(recorder.states.count, recorder.causes.count)
+        XCTAssertTrue(recorder.flowDeltaReviewView(view, menuItemsForNodeWithStableID: node).isEmpty)
+    }
+
     func testBeforeAfterModeHandlesAddedAndRemovedFunctions() throws {
         let added = try makeOneSidedReport(old: nil, new: "func added() { print(1) }")
         let removed = try makeOneSidedReport(old: "func removed() { print(1) }", new: nil)
@@ -343,5 +397,16 @@ final class FlowDeltaReviewViewTests: XCTestCase {
 private extension NSView {
     func descendants<View: NSView>(of type: View.Type) -> [View] {
         subviews.compactMap { $0 as? View } + subviews.flatMap { $0.descendants(of: type) }
+    }
+}
+
+@MainActor
+private final class ReviewStateRecorder: FlowDeltaReviewViewDelegate {
+    private(set) var states: [FlowReviewState] = []
+    private(set) var causes: [FlowReviewChangeCause] = []
+
+    func flowDeltaReviewView(_: FlowDeltaReviewView, didChange state: FlowReviewState, cause: FlowReviewChangeCause) {
+        states.append(state)
+        causes.append(cause)
     }
 }
