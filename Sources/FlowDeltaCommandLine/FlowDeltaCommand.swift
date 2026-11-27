@@ -5,9 +5,9 @@ import FlowDeltaExport
 import FlowDeltaGit
 import Foundation
 
-@main
-struct FlowDeltaCommand: ParsableCommand {
-    static let configuration = CommandConfiguration(
+/// The `flowdelta` command. It lives in a library so tests import it on every Xcode, and the executable only runs it.
+public struct FlowDeltaCommand: ParsableCommand {
+    public static let configuration = CommandConfiguration(
         commandName: "flowdelta",
         abstract: "Explain how two Git revisions change source control and data flow.",
         version: "0.3.1"
@@ -37,7 +37,9 @@ struct FlowDeltaCommand: ParsableCommand {
     @Argument(help: "Target commit-ish (default: HEAD).")
     var target = "HEAD"
 
-    mutating func run() throws {
+    public init() {}
+
+    public mutating func run() throws {
         let repositoryURL = URL(fileURLWithPath: repository, isDirectory: true).standardizedFileURL
         let baseRevision = base
         let targetRevision = target

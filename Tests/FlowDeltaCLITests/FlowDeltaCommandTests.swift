@@ -1,5 +1,5 @@
 import ArgumentParser
-@testable import FlowDeltaCLI
+@testable import FlowDeltaCommandLine
 import FlowDeltaExport
 import XCTest
 
