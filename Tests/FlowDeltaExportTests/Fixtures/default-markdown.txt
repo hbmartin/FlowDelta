@@ -1,0 +1,30 @@
+# FlowDelta report
+
+`base` → `target`
+
+Summary: 1 source file(s), 0 added, 0 removed, 1 modified, 0 moved, 0 renamed.
+
+## Entity triage
+
+| Change | Entity | Path | Confidence |
+| --- | --- | --- | --- |
+| modified | `review("quoted")` | `Review.swift` | exactName 100% |
+
+## Control-flow delta
+
+```mermaid
+flowchart TD
+  subgraph fd_2284cbb38b9cf89["review(&quot;quoted&quot;)"]
+    fd_880dd9935c96f0e1["Entry"]:::retained
+    fd_b71f23ab38ea8889["return value"]:::affected
+    fd_880dd9935c96f0e1 -.->|"value"| fd_b71f23ab38ea8889
+    fd_880dd9935c96f0e1 --> fd_b71f23ab38ea8889
+  end
+  classDef added fill:#d8ecd0,stroke:#3f7d3b,color:#172515
+  classDef removed fill:#f2d1ca,stroke:#9d4036,color:#351512
+  classDef modified fill:#f6e6a9,stroke:#a17b16,color:#382c08
+  classDef affected fill:#ded5ef,stroke:#72539a,color:#261b35
+  classDef retained fill:#dce7f1,stroke:#6b7e91,color:#202830
+```
+
+Affected nodes in this report use the **control + data context** basis.

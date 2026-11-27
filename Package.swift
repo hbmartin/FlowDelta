@@ -123,7 +123,8 @@ let package = Package(
         ),
         .testTarget(
             name: "FlowDeltaExportTests",
-            dependencies: ["FlowDeltaCore", "FlowDeltaExport"]
+            dependencies: ["FlowDeltaCore", "FlowDeltaExport"],
+            resources: [.copy("Fixtures")]
         ),
         .testTarget(
             name: "FlowDeltaCLITests",
