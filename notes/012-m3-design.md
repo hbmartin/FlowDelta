@@ -87,7 +87,7 @@ Python and Go def-use use AST binding rules from a per-language `LanguageProfile
 - **Parameters** come from the AST as `SourceEntity.parameterNames`. This includes `*args` and `**kwargs`, Go grouped parameters, variadic parameters, receivers and named results. The old `qualifiedName` parsing stays as the fallback for Swift and TypeScript/JavaScript.
 - **Header fields.** Condition and loop nodes record their header fields' syntax (`if x := f(); x > 0`, Go `for` clauses), so initializer definitions are not lost.
 
-`supportsDataFlow` then becomes true for Python and Go. The lexical model stays per statement, so false edges remain possible; validation measures them on the audit corpus.
+Every language then has data flow, so `SourceLanguage.supportsDataFlow` (added unreleased in this branch) is removed and the review summary always reports control + data context for analyzed files. The model stays per statement, so false edges remain possible; validation measures them on the audit corpus. Nodes after a loop carry the loop's syntax but run none of it, so they have no facts.
 
 ## Export and CLI boundary
 
@@ -116,7 +116,7 @@ With grouping on, triage shows a group row above each group's members. A tangled
 ## Verification plan
 
 - Core and analysis unit tests cover every noise level and rule, every grouping reason and title, walkthrough chunking and order, and every Python and Go binding rule.
-- Existing M2 expectations keep passing, apart from the two that pin `supportsDataFlow` false for Python and Go, which flip deliberately.
+- Existing M2 expectations keep passing, apart from the two that pin Python and Go as control-flow only, which flip deliberately.
 - An audit-corpus check counts data edges before and after, for Python and Go fixtures.
 - Export tests prove the default output is unchanged, and cover each option.
 - The CLI is smoke-tested with every flag and format.

@@ -3,17 +3,12 @@ import Foundation
 import XCTest
 
 final class CoreModelTests: XCTestCase {
-    func testOnlyLanguagesWithDefUseRulesSupportDataFlow() {
-        XCTAssertEqual(SourceLanguage.allCases.filter(\.supportsDataFlow), [.swift, .typescript, .javascript])
-    }
-
-    func testSummarySaysWhichLanguagesHaveDataContext() {
+    func testSummarySaysEveryAnalyzedLanguageHasDataContext() {
         XCTAssertEqual(FlowReviewSummary.affectedBasis(for: []), "affected = control context")
-        XCTAssertEqual(FlowReviewSummary.affectedBasis(for: [.python, .go]), "affected = control context")
-        XCTAssertEqual(FlowReviewSummary.affectedBasis(for: [.swift, .javascript]), "affected = control + data context")
+        XCTAssertEqual(FlowReviewSummary.affectedBasis(for: [.python, .go]), "affected = control + data context")
         XCTAssertEqual(
-            FlowReviewSummary.affectedBasis(for: [.typescript, .python, .swift]),
-            "affected = control context; data context for Swift, TypeScript"
+            FlowReviewSummary.affectedBasis(for: Set(SourceLanguage.allCases)),
+            "affected = control + data context"
         )
     }
 

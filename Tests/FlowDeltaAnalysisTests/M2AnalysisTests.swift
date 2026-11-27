@@ -88,7 +88,7 @@ final class M2AnalysisTests: XCTestCase {
             XCTAssertTrue(edgeKinds.contains(.conditionFalse), language.displayName)
             XCTAssertTrue(edgeKinds.contains(.loopBack), language.displayName)
             XCTAssertTrue(edgeKinds.contains(.returnFlow), language.displayName)
-            XCTAssertEqual(analysis.dataGraphs.isEmpty, language == .python || language == .go)
+            XCTAssertFalse(analysis.dataGraphs.isEmpty, language.displayName)
         }
     }
 

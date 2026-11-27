@@ -2,7 +2,7 @@
 
 FlowDelta is a deterministic Swift library and CLI for explaining how a Git change alters program control and data flow. It parses Swift, TypeScript/JavaScript, Python, and Go into normalized syntax trees; matches declarations and syntax across revisions; constructs statement-level control-flow graphs; and renders matched graph deltas with native AppKit.
 
-Swift and TypeScript/JavaScript also include lexical intraprocedural def-use deltas, explicitly basis-labeled data-context impact, and backward slicing. Source-derived call neighborhoods are always available and can be enriched for Swift by the separately resolved IndexStoreDB extension.
+Every language also includes intraprocedural def-use deltas, explicitly basis-labeled data-context impact, and backward slicing. Swift and TypeScript/JavaScript read definitions and uses lexically; Python and Go read them from syntax-tree binding rules. Source-derived call neighborhoods are always available and can be enriched for Swift by the separately resolved IndexStoreDB extension.
 
 ## Quick start
 
@@ -29,7 +29,7 @@ The default CLI output is an entity triage table followed by per-function flow s
 
 ## Trust and limits
 
-Matching confidence is part of the model and exports. Nodes labeled `affected` carry causality links whose basis is explicitly `control`, `data`, or both. Data-flow claims are limited to Swift and TypeScript/JavaScript in M2; Python and Go remain control-flow only.
+Matching confidence is part of the model and exports. Nodes labeled `affected` carry causality links whose basis is explicitly `control`, `data`, or both. Def-use is per statement and intraprocedural: it does not follow aliasing, fields or calls, and a Python name declared `global` or `nonlocal` is not treated as local.
 
 Analysis has hard changed-file, blob, syntax-node, flow-node, and flow-edge limits. A file or function can degrade to diagnostics while the remainder of the report stays usable. Only an exceeded limit is reported as `resourceLimit`; any other failure to analyze a file is `internalInvariant`.
 

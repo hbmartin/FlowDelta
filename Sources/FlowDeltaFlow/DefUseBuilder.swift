@@ -1,4 +1,5 @@
 import FlowDeltaCore
+import FlowDeltaParse
 import Foundation
 import OSLog
 
@@ -12,20 +13,28 @@ public struct DefUseBuilder: Sendable {
         graph: ControlFlowGraph,
         language: SourceLanguage
     ) -> DataFlowGraph? {
-        guard language.supportsDataFlow else { return nil }
         let syntaxByID = Dictionary(
             entity.body.descendants.map { ($0.id, $0) },
             uniquingKeysWith: { first, _ in first }
         )
         let orderedNodes = graph.nodes.sorted(by: { ($0.sourceOrder, $0.id) < ($1.sourceOrder, $1.id) })
+        let profile = LanguageProfile.profile(for: language)
+        let syntaxFacts = profile.binding.map { SyntaxBindingFacts(entity: entity, profile: profile, rules: $0) }
         let factsByNode = Dictionary(uniqueKeysWithValues: orderedNodes.map { node in
+            if node.isSynthetic {
+                return (node.id, LexicalFacts.empty)
+            }
+            if let syntaxFacts {
+                return (node.id, syntaxFacts.facts(for: node))
+            }
             let source = sourceText(for: node, syntaxByID: syntaxByID)
-            return (node.id, node.isSynthetic ? LexicalFacts.empty : lexicalFacts(in: source, language: language))
+            return (node.id, lexicalFacts(in: source, language: language))
         })
         let predecessors = Dictionary(grouping: graph.edges, by: \.target).mapValues { edges in
             Set(edges.map(\.source))
         }
-        let parameterState = Dictionary(uniqueKeysWithValues: parameterNames(in: entity, language: language).map {
+        let parameters = entity.parameterNames.map(Set.init) ?? parameterNames(in: entity, language: language)
+        let parameterState = Dictionary(uniqueKeysWithValues: parameters.map {
             ($0, Set([graph.entryID]))
         })
         var incomingByNode: [StableID: DefinitionState] = [:]
@@ -245,7 +254,7 @@ public struct DefUseBuilder: Sendable {
     }
 }
 
-private struct LexicalFacts {
+struct LexicalFacts {
     let definitions: Set<String>
     let uses: Set<String>
 

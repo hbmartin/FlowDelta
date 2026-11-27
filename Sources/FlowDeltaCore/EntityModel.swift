@@ -20,6 +20,9 @@ public struct SourceEntity: Codable, Hashable, Sendable, Identifiable {
     public let path: String
     public let range: SourceRange
     public let body: SyntaxNode
+    /// The callable's receiver, parameter and named-result names, read from its syntax. Nil when the extractor
+    /// does not read them for the language, and in 0.2 reports; data flow then parses `qualifiedName`.
+    public let parameterNames: [String]?
 
     public init(
         id: StableID,
@@ -28,7 +31,8 @@ public struct SourceEntity: Codable, Hashable, Sendable, Identifiable {
         qualifiedName: String,
         path: String,
         range: SourceRange,
-        body: SyntaxNode
+        body: SyntaxNode,
+        parameterNames: [String]? = nil
     ) {
         self.id = id
         self.kind = kind
@@ -37,6 +41,7 @@ public struct SourceEntity: Codable, Hashable, Sendable, Identifiable {
         self.path = path
         self.range = range
         self.body = body
+        self.parameterNames = parameterNames
     }
 }
 
