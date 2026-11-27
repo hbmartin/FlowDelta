@@ -406,6 +406,12 @@ private final class FlowNodeView: NSView {
 // MARK: Keyboard
 
 public extension FlowGraphView {
+    /// Scrolls a node into view, with a margin so its neighbors show too.
+    func scrollNode(withStableIDToVisible stableID: String) {
+        guard let frame = currentLayout?.nodeFrames[StableID(rawValue: stableID)] else { return }
+        scrollToVisible(frame.insetBy(dx: -24, dy: -24))
+    }
+
     /// Moves the selection as an arrow, Home or End key would, scrolling the new node into view.
     func moveSelection(_ move: GraphNavigationMove) {
         guard let currentLayout,

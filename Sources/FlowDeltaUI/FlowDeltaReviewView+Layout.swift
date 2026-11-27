@@ -1,4 +1,5 @@
 import AppKit
+import FlowDeltaCore
 
 /// Builds the review view's header, triage sidebar, graph panes and source pane.
 extension FlowDeltaReviewView {
@@ -15,7 +16,13 @@ extension FlowDeltaReviewView {
         summaryLabel.translatesAutoresizingMaskIntoConstraints = false
         summaryLabel.font = NSFont.systemFont(ofSize: 11)
         summaryLabel.textColor = .secondaryLabelColor
+        summaryLabel.lineBreakMode = .byTruncatingTail
+        summaryLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         header.addSubview(summaryLabel)
+        let reviewControls = configureReviewControls()
+        header.addSubview(reviewControls)
+        let bars = configureInfoBars()
+        addSubview(bars)
 
         mainSplit.translatesAutoresizingMaskIntoConstraints = false
         mainSplit.isVertical = true
@@ -39,13 +46,88 @@ extension FlowDeltaReviewView {
             revisionLabel.topAnchor.constraint(equalTo: header.topAnchor, constant: 7),
             summaryLabel.leadingAnchor.constraint(equalTo: revisionLabel.leadingAnchor),
             summaryLabel.topAnchor.constraint(equalTo: revisionLabel.bottomAnchor, constant: 2),
-            mainSplit.topAnchor.constraint(equalTo: header.bottomAnchor),
+            summaryLabel.trailingAnchor.constraint(lessThanOrEqualTo: reviewControls.leadingAnchor, constant: -12),
+            reviewControls.trailingAnchor.constraint(equalTo: header.trailingAnchor, constant: -14),
+            reviewControls.centerYAnchor.constraint(equalTo: header.centerYAnchor),
+            bars.topAnchor.constraint(equalTo: header.bottomAnchor),
+            bars.leadingAnchor.constraint(equalTo: leadingAnchor),
+            bars.trailingAnchor.constraint(equalTo: trailingAnchor),
+            mainSplit.topAnchor.constraint(equalTo: bars.bottomAnchor),
             mainSplit.leadingAnchor.constraint(equalTo: leadingAnchor),
             mainSplit.trailingAnchor.constraint(equalTo: trailingAnchor),
             mainSplit.bottomAnchor.constraint(equalTo: bottomAnchor)
         ])
         assignAccessibilityIdentifiers()
         configureKeyViewLoop()
+    }
+
+    /// The noise pop-up, Group by Concern, the hidden-noise link and Walkthrough, trailing in the header.
+    func configureReviewControls() -> NSView {
+        noisePopUp.controlSize = .small
+        noisePopUp.font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
+        noisePopUp.addItems(withTitles: FlowNoisePolicy.allCases.map(\.displayName))
+        noisePopUp.target = self
+        noisePopUp.action = #selector(noisePopUpChanged(_:))
+        noisePopUp.toolTip = "Choose which node changes count as noise. Equivalent rewrites are always shown."
+        groupCheckbox.controlSize = .small
+        groupCheckbox.font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
+        groupCheckbox.target = self
+        groupCheckbox.action = #selector(groupCheckboxChanged(_:))
+        hiddenNoiseButton.isBordered = false
+        hiddenNoiseButton.controlSize = .small
+        hiddenNoiseButton.target = self
+        hiddenNoiseButton.action = #selector(showHiddenNoise(_:))
+        hiddenNoiseButton.isHidden = true
+        ReviewViewComponents.configureBarButton(
+            walkthroughButton,
+            target: self,
+            action: #selector(walkthroughButtonPressed(_:))
+        )
+        walkthroughButton.toolTip = "Step through this revision's changes one at a time"
+        let stack = NSStackView(views: [hiddenNoiseButton, noisePopUp, groupCheckbox, walkthroughButton])
+        stack.orientation = .horizontal
+        stack.spacing = 10
+        stack.detachesHiddenViews = true
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        return stack
+    }
+
+    /// The tangled-revision banner and the walkthrough bar; each collapses when hidden.
+    func configureInfoBars() -> NSView {
+        ReviewViewComponents.configureBarButton(
+            tangledGroupButton,
+            target: self,
+            action: #selector(groupFromBanner(_:))
+        )
+        tangledBanner.setViews(leading: [], trailing: [tangledGroupButton])
+        tangledBanner.isHidden = true
+        for (button, action) in [
+            (walkthroughPreviousButton, #selector(walkthroughPrevious(_:))),
+            (walkthroughNextButton, #selector(walkthroughNext(_:))),
+            (walkthroughDoneButton, #selector(walkthroughDone(_:)))
+        ] {
+            ReviewViewComponents.configureBarButton(button, target: self, action: action)
+        }
+        walkthroughPreviousButton.setAccessibilityLabel("Previous Step")
+        walkthroughNextButton.setAccessibilityLabel("Next Step")
+        walkthroughStepLabel.font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize, weight: .semibold)
+        walkthroughBar.setViews(
+            leading: [walkthroughPreviousButton, walkthroughNextButton, walkthroughStepLabel],
+            trailing: [walkthroughDoneButton]
+        )
+        walkthroughBar.isHidden = true
+        let bars = NSStackView(views: [tangledBanner, walkthroughBar])
+        bars.orientation = .vertical
+        bars.spacing = 0
+        bars.detachesHiddenViews = true
+        bars.translatesAutoresizingMaskIntoConstraints = false
+        for bar in [tangledBanner, walkthroughBar] {
+            bar.widthAnchor.constraint(equalTo: bars.widthAnchor).isActive = true
+        }
+        let collapsed = bars.heightAnchor.constraint(equalToConstant: 0)
+        collapsed.priority = .defaultLow
+        collapsed.isActive = true
+        return bars
     }
 
     func configureSidebar() -> NSView {

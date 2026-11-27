@@ -34,8 +34,23 @@ public final class FlowDeltaReviewView: NSView, NSTableViewDataSource, NSTableVi
         target: nil,
         action: nil
     )
+    let noisePopUp = NSPopUpButton(frame: .zero, pullsDown: false)
+    let groupCheckbox = NSButton(checkboxWithTitle: "Group by Concern", target: nil, action: nil)
+    let hiddenNoiseButton = NSButton(title: "", target: nil, action: nil)
+    let walkthroughButton = NSButton(title: "Walkthrough", target: nil, action: nil)
+    let tangledBanner = ReviewInfoBar()
+    let tangledGroupButton = NSButton(title: "Group by Concern", target: nil, action: nil)
+    let walkthroughBar = ReviewInfoBar()
+    let walkthroughPreviousButton = NSButton(title: "◀", target: nil, action: nil)
+    let walkthroughNextButton = NSButton(title: "▶", target: nil, action: nil)
+    let walkthroughStepLabel = NSTextField(labelWithString: "")
+    let walkthroughDoneButton = NSButton(title: "Done", target: nil, action: nil)
     let layoutEngine = DominatorAnchoredLayout()
-    var rows: [ReviewRow] = []
+    var rows: [TriageRow] = []
+    var noisePolicy: FlowNoisePolicy = .showAll
+    var groupsByConcernEnabled = false
+    var walkthroughSteps: [FlowWalkthroughStep] = []
+    var walkthroughIndex: Int?
     var currentReport: RevisionFlowDeltaReport?
     var currentFunction: FunctionFlowDelta?
     var currentProjection: FunctionDeltaProjection?
@@ -65,27 +80,22 @@ public final class FlowDeltaReviewView: NSView, NSTableViewDataSource, NSTableVi
 
     private func show(_ report: RevisionFlowDeltaReport) {
         currentReport = report
+        endWalkthroughSilently()
         revisionLabel.stringValue = "\(ReviewViewComponents.short(report.base.value)) → \(ReviewViewComponents.short(report.target.value))"
         summaryLabel.stringValue = FlowReviewSummary.text(for: report)
-        rows = report.files.flatMap { file in
-            file.entityChanges.map { change in
-                ReviewRow(
-                    file: file,
-                    change: change,
-                    function: file.functionDeltas.first { $0.entityChange == change }
-                )
-            }
-        }
+        rebuildTriageRows()
         let rowCount = rows.count
         Self.logger.notice(
             "Displaying revision review with \(rowCount) triage rows and \(report.functionDeltas.count) function deltas"
         )
-        tableView.reloadData()
-        if let row = rows.firstIndex(where: { $0.function != nil }) ?? rows.indices.first {
+        if let row = rows.firstIndex(where: { $0.entity?.function != nil }) ?? rows
+            .firstIndex(where: { $0.entity != nil })
+        {
             tableView.selectRowIndexes([row], byExtendingSelection: false)
             tableView.scrollRowToVisible(row)
-            show(row: rows[row])
+            rows[row].entity.map(show(row:))
         }
+        updateReviewControls()
     }
 
     public var triageRowCount: Int {
@@ -105,6 +115,11 @@ public final class FlowDeltaReviewView: NSView, NSTableViewDataSource, NSTableVi
             .filter { ($0.new ?? $0.old)?.sourceRanges.isEmpty == false }
             .map(\.id.rawValue)
             .sorted() ?? []
+    }
+
+    /// The delta state each node of the displayed delta graph is drawn in, after the noise policy.
+    public var displayedNodeStates: [String: DeltaState] {
+        Dictionary(uniqueKeysWithValues: (currentProjection?.states ?? [:]).map { ($0.key.rawValue, $0.value) })
     }
 
     public var selectedGraphNodeStableID: String? {
@@ -136,14 +151,19 @@ public final class FlowDeltaReviewView: NSView, NSTableViewDataSource, NSTableVi
     }
 
     public var nonCallableTriageRows: [Int] {
-        rows.indices.filter { rows[$0].function == nil }
+        rows.indices.filter { rows[$0].entity != nil && rows[$0].entity?.function == nil }
+    }
+
+    /// The rows that head a concern group, when the triage is grouped.
+    public var triageGroupRows: [Int] {
+        rows.indices.filter { rows[$0].entity == nil }
     }
 
     public func selectTriageRow(_ row: Int) {
-        guard rows.indices.contains(row) else { return }
+        guard rows.indices.contains(row), let entity = rows[row].entity else { return }
         performHostChange {
             tableView.selectRowIndexes([row], byExtendingSelection: false)
-            show(row: rows[row])
+            show(row: entity)
         }
     }
 
@@ -187,17 +207,22 @@ public final class FlowDeltaReviewView: NSView, NSTableViewDataSource, NSTableVi
         viewFor tableColumn: NSTableColumn?,
         row: Int
     ) -> NSView? {
-        guard rows.indices.contains(row), let tableColumn else { return nil }
+        guard rows.indices.contains(row) else { return nil }
+        guard let entry = rows[row].entity else {
+            guard case let .group(title, kind) = rows[row] else { return nil }
+            return ReviewViewComponents.makeGroupCell(heading: TriageRow.heading(title: title, kind: kind), row: row)
+        }
+        guard let tableColumn else { return nil }
         let identifier = tableColumn.identifier
         let cell = tableView.makeView(withIdentifier: identifier, owner: self) as? NSTableCellView
             ?? ReviewViewComponents.makeCell(identifier: identifier)
         let value: String
         if identifier.rawValue == "change" {
-            value = rows[row].change.kind.rawValue.capitalized
-            cell.textField?.textColor = ReviewViewComponents.color(for: rows[row].change.kind)
+            value = entry.change.kind.rawValue.capitalized
+            cell.textField?.textColor = ReviewViewComponents.color(for: entry.change.kind)
             cell.textField?.font = NSFont.systemFont(ofSize: 11, weight: .semibold)
         } else {
-            let entity = rows[row].change.new ?? rows[row].change.old
+            let entity = entry.change.new ?? entry.change.old
             value = entity?.qualifiedName ?? "<unknown>"
             cell.textField?.textColor = .labelColor
             cell.textField?.font = NSFont.systemFont(ofSize: 11)
@@ -207,10 +232,18 @@ public final class FlowDeltaReviewView: NSView, NSTableViewDataSource, NSTableVi
         return cell
     }
 
+    public func tableView(_: NSTableView, isGroupRow row: Int) -> Bool {
+        rows.indices.contains(row) && rows[row].entity == nil
+    }
+
+    public func tableView(_: NSTableView, shouldSelectRow row: Int) -> Bool {
+        rows.indices.contains(row) && rows[row].entity != nil
+    }
+
     public func tableViewSelectionDidChange(_ notification: Notification) {
         let row = tableView.selectedRow
-        guard rows.indices.contains(row) else { return }
-        show(row: rows[row])
+        guard rows.indices.contains(row), let entry = rows[row].entity else { return }
+        show(row: entry)
         reportStateChange(.user)
     }
 

@@ -23,17 +23,29 @@ public struct FlowReviewState: Hashable, Codable, Sendable {
     public var selectedFunctionName: String?
     /// The stable ID of the selected graph node.
     public var selectedNodeStableID: String?
+    /// The noise the review shows as unchanged.
+    public var noise: FlowNoisePolicy
+    /// Whether the triage list is grouped by concern.
+    public var groupsByConcern: Bool
+    /// The index of the walkthrough step on screen, or nil when no walkthrough is running.
+    public var walkthroughStep: Int?
 
     public init(
         presentation: FlowReviewPresentation = .delta,
         slice: FlowSliceDirection? = nil,
         selectedFunctionName: String? = nil,
-        selectedNodeStableID: String? = nil
+        selectedNodeStableID: String? = nil,
+        noise: FlowNoisePolicy = .showAll,
+        groupsByConcern: Bool = false,
+        walkthroughStep: Int? = nil
     ) {
         self.presentation = presentation
         self.slice = slice
         self.selectedFunctionName = selectedFunctionName
         self.selectedNodeStableID = selectedNodeStableID
+        self.noise = noise
+        self.groupsByConcern = groupsByConcern
+        self.walkthroughStep = walkthroughStep
     }
 }
 

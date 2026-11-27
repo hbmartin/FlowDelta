@@ -8,8 +8,8 @@ import OSLog
 extension FlowDeltaReviewView {
     func show(row: ReviewRow) {
         currentFile = row.file
-        currentFunction = row.function
-        guard let function = row.function else {
+        currentFunction = row.function.map { FlowNoiseFilter.apply(noisePolicy, to: $0).function }
+        guard let function = currentFunction else {
             functionLabel.stringValue = (row.change.new ?? row.change.old)?.qualifiedName ?? "Entity"
             displayPlaceholder("No callable flow graph")
             currentProjection = nil
@@ -19,7 +19,7 @@ extension FlowDeltaReviewView {
         let classifications = function.classifications.map(\.reviewLabel).joined(separator: ", ")
         functionLabel.stringValue = function.displayName
             + (classifications.isEmpty ? "" : " — \(classifications)")
-        renderCurrentMode(animated: currentProjection != nil)
+        renderCurrentMode(animated: currentProjection != nil && !ReviewViewComponents.prefersReducedMotion)
         sourceView.display(row.file.comparison.new ?? row.file.comparison.old, title: "Target source")
         sliceButton.state = .off
         updateSliceFocus()
@@ -46,7 +46,7 @@ extension FlowDeltaReviewView {
               let selected = graphView.selectedStableID,
               let currentProjection
         else {
-            graphView.emphasizeNodes(withStableIDs: nil)
+            graphView.emphasizeNodes(withStableIDs: currentWalkthroughEmphasis)
             comparisonGraphView.emphasizeNodes(withStableIDs: nil)
             return
         }

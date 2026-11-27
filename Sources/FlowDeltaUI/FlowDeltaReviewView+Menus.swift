@@ -69,7 +69,7 @@ extension FlowDeltaReviewView {
             modeControl.selectedSegment = FlowReviewPresentation.delta.rawValue
             tableView.selectRowIndexes([row], byExtendingSelection: false)
             tableView.scrollRowToVisible(row)
-            show(row: rows[row])
+            rows[row].entity.map(show(row:))
         case .showSource:
             graph.selectNode(withStableID: target.stableID)
             flowGraphView(graph, didSelectNodeWithStableID: target.stableID)
@@ -114,7 +114,7 @@ extension FlowDeltaReviewView {
     /// The triage row of the function a call node stands for.
     private func reviewRow(forCallNode id: StableID) -> Int? {
         rows.firstIndex { row in
-            row.function.map { CallGraphNode.stableID(for: $0.entityChange) } == id
+            row.entity?.function.map { CallGraphNode.stableID(for: $0.entityChange) } == id
         }
     }
 

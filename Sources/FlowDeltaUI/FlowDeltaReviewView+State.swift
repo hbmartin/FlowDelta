@@ -18,7 +18,10 @@ public extension FlowDeltaReviewView {
             presentation: presentation,
             slice: sliceDirection,
             selectedFunctionName: currentFunction?.displayName,
-            selectedNodeStableID: graphView.selectedStableID
+            selectedNodeStableID: graphView.selectedStableID,
+            noise: noisePolicy,
+            groupsByConcern: groupsByConcernEnabled,
+            walkthroughStep: walkthroughIndex
         )
     }
 
@@ -57,7 +60,7 @@ extension FlowDeltaReviewView {
         guard state != lastReportedState else { return }
         lastReportedState = state
         Self.logger.debug(
-            "Review state changed by \(cause == .user ? "user" : "host", privacy: .public): presentation \(state.presentation.rawValue), slice \(state.slice?.rawValue ?? -1)"
+            "Review state changed by \(cause == .user ? "user" : "host", privacy: .public): presentation \(state.presentation.rawValue), slice \(state.slice?.rawValue ?? -1), noise \(state.noise.rawValue, privacy: .public), grouped \(state.groupsByConcern), step \(state.walkthroughStep ?? -1)"
         )
         delegate?.flowDeltaReviewView(self, didChange: state, cause: cause)
     }
