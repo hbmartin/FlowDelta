@@ -202,6 +202,69 @@ final class GitCLIRevisionProviderTests: XCTestCase {
         }
     }
 
+    func testCancellingTerminatesGitAfterItClosesItsOutput() async throws {
+        let repository = try TemporaryGitRepository()
+        let closed = repository.url.appendingPathComponent("output-closed")
+        let executable = repository.url.appendingPathComponent("quiet-git")
+        try Data("#!/bin/sh\nexec 1>&-\n: > '\(closed.path)'\nexec /bin/sleep 60\n".utf8)
+            .write(to: executable, options: .atomic)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+
+        let comparison = Task {
+            try await GitCLIRevisionProvider(executableURL: executable).comparison(
+                repositoryURL: repository.url,
+                base: "HEAD^",
+                target: "HEAD"
+            )
+        }
+        let deadline = Date().addingTimeInterval(10)
+        while !FileManager.default.fileExists(atPath: closed.path), Date() < deadline {
+            await Task.yield()
+        }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: closed.path), "git never closed its output")
+        // Let the provider see the end of the output and start waiting for git to exit.
+        try await Task.sleep(for: .milliseconds(300))
+        let cancelled = Date()
+        comparison.cancel()
+
+        do {
+            _ = try await comparison.value
+            XCTFail("Expected the cancelled comparison to throw")
+        } catch is CancellationError {
+            XCTAssertLessThan(Date().timeIntervalSince(cancelled), 10, "git kept running after cancellation")
+        }
+    }
+
+    func testLargeErrorOutputCannotStallGit() async throws {
+        let repository = try TemporaryGitRepository()
+        let executable = repository.url.appendingPathComponent("noisy-git")
+        try Data("#!/bin/sh\nhead -c 200000 /dev/zero | tr '\\000' e >&2\nexit 3\n".utf8)
+            .write(to: executable, options: .atomic)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+
+        let comparison = Task {
+            try await GitCLIRevisionProvider(executableURL: executable).comparison(
+                repositoryURL: repository.url,
+                base: "HEAD^",
+                target: "HEAD"
+            )
+        }
+        let watchdog = Task {
+            try await Task.sleep(for: .seconds(10))
+            comparison.cancel()
+        }
+        defer { watchdog.cancel() }
+        do {
+            _ = try await comparison.value
+            XCTFail("Expected git's failure")
+        } catch let GitRevisionProviderError.gitFailed(_, status, message) {
+            XCTAssertEqual(status, 3)
+            XCTAssertEqual(message.count, 200_000)
+        } catch {
+            XCTFail("git stalled writing its error output: \(error)")
+        }
+    }
+
     func testAComparisonCancelledBeforeItStartsLaunchesNoGit() async throws {
         let repository = try TemporaryGitRepository()
         let launched = repository.url.appendingPathComponent("git-launched")

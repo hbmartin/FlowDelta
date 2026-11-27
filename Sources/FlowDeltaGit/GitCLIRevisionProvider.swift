@@ -174,16 +174,19 @@ public struct GitCLIRevisionProvider: RevisionProvider, Sendable {
         process.standardError = error
         try process.run()
         let running = RunningGit(process)
-        let outputData = await withTaskCancellationHandler {
-            output.fileHandleForReading.readDataToEndOfFile()
+        // The handler covers reading, waiting and collecting error output, so cancelling terminates git even after
+        // it has closed its output. Error output drains on another thread so a full pipe cannot stall git.
+        let (outputData, errorData) = await withTaskCancellationHandler {
+            let errorOutput = PipeDrain(error.fileHandleForReading)
+            let outputData = output.fileHandleForReading.readDataToEndOfFile()
+            process.waitUntilExit()
+            return (outputData, errorOutput.wait())
         } onCancel: {
             Self.logger.info(
                 "Terminating git \(arguments.first ?? "", privacy: .public) because its revision comparison was cancelled"
             )
             running.terminate()
         }
-        process.waitUntilExit()
-        let errorData = error.fileHandleForReading.readDataToEndOfFile()
         try Task.checkCancellation()
         guard process.terminationStatus == 0 else {
             throw GitRevisionProviderError.gitFailed(
@@ -254,5 +257,24 @@ private final class RunningGit: @unchecked Sendable {
         if process.isRunning {
             process.terminate()
         }
+    }
+}
+
+// swift6-safety-justification: only the reading thread writes `data`, and `wait()` reads it after the semaphore.
+/// Reads a pipe to its end on another thread. The semaphore publishes the data to `wait()`.
+private final class PipeDrain: @unchecked Sendable {
+    private let finished = DispatchSemaphore(value: 0)
+    private var data = Data()
+
+    init(_ handle: FileHandle) {
+        DispatchQueue.global(qos: .utility).async { [self] in
+            data = handle.readDataToEndOfFile()
+            finished.signal()
+        }
+    }
+
+    func wait() -> Data {
+        finished.wait()
+        return data
     }
 }
