@@ -58,6 +58,26 @@ final class CoreModelTests: XCTestCase {
         )
     }
 
+    func testASourceRangeIsHalfOpenInBothEncodings() {
+        // In "éaéb" the range covers "aéb". "é" is two UTF-8 bytes but one UTF-16 unit, so the offsets differ.
+        let range = SourceRange(
+            start: SourceLocation(utf8Offset: 2, utf16Offset: 1, line: 0, utf16Column: 1),
+            end: SourceLocation(utf8Offset: 6, utf16Offset: 4, line: 0, utf16Column: 4)
+        )
+        XCTAssertEqual(range.utf8Range, 2 ..< 6)
+        XCTAssertEqual(range.utf16Range, 1 ..< 4)
+        XCTAssertFalse(range.isEmpty)
+        XCTAssertFalse(range.contains(utf16Offset: 0))
+        XCTAssertTrue(range.contains(utf16Offset: 1))
+        XCTAssertTrue(range.contains(utf16Offset: 3))
+        XCTAssertFalse(range.contains(utf16Offset: 4), "The end is exclusive")
+
+        let empty = sourceRange(3, 3)
+        XCTAssertTrue(empty.isEmpty)
+        XCTAssertTrue(empty.utf8Range.isEmpty)
+        XCTAssertFalse(empty.contains(utf16Offset: 3))
+    }
+
     func testSourceLanguageRecognizesM2Extensions() {
         XCTAssertEqual(SourceLanguage(path: "Sources/App.swift"), .swift)
         XCTAssertEqual(SourceLanguage(path: "web/component.tsx"), .typescript)
