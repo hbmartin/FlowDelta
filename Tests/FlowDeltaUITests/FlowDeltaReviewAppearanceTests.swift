@@ -35,6 +35,23 @@ final class FlowDeltaReviewAppearanceTests: XCTestCase {
         window.close()
     }
 
+    func testReviewViewDecodedAsANibCustomViewIsConfiguredLikeOneMadeInCode() throws {
+        // Interface Builder archives a plain custom view and substitutes its custom class on decode.
+        let archive = try NSKeyedArchiver.archivedData(
+            withRootObject: NSView(frame: CGRect(x: 0, y: 0, width: 640, height: 480)),
+            requiringSecureCoding: false
+        )
+        let unarchiver = try NSKeyedUnarchiver(forReadingFrom: archive)
+        unarchiver.requiresSecureCoding = false
+        unarchiver.setClass(FlowDeltaReviewView.self, forClassName: "NSView")
+        let view = try XCTUnwrap(unarchiver.decodeObject(forKey: NSKeyedArchiveRootObjectKey) as? FlowDeltaReviewView)
+
+        XCTAssertEqual(view.appearance?.name, .aqua)
+        XCTAssertEqual(view.accessibilityIdentifier(), "FlowDelta.Review")
+        XCTAssertEqual(view.layer?.backgroundColor, Self.windowBackground(in: .aqua))
+        XCTAssertEqual(view.triageRowCount, 0)
+    }
+
     private static func windowBackground(in name: NSAppearance.Name) -> CGColor? {
         var color: CGColor?
         NSAppearance(named: name)?.performAsCurrentDrawingAppearance {

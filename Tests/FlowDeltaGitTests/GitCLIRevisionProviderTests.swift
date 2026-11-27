@@ -146,6 +146,31 @@ final class GitCLIRevisionProviderTests: XCTestCase {
         }
     }
 
+    func testRejectsNonUTF8NameStatus() async throws {
+        let repository = try TemporaryGitRepository()
+        let executable = repository.url.appendingPathComponent("fake-git")
+        let script = """
+        #!/bin/sh
+        for argument in "$@"; do
+            if [ "$argument" = "--name-status" ]; then printf '\\377\\000Value.swift\\000'; exit 0; fi
+        done
+        echo 0123456789abcdef0123456789abcdef01234567
+        """
+        try Data(script.utf8).write(to: executable, options: .atomic)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+
+        do {
+            _ = try await GitCLIRevisionProvider(executableURL: executable).comparison(
+                repositoryURL: repository.url,
+                base: "HEAD^",
+                target: "HEAD"
+            )
+            XCTFail("Expected invalid UTF-8 failure")
+        } catch let error as GitRevisionProviderError {
+            XCTAssertEqual(error, .invalidUTF8(context: "name status"))
+        }
+    }
+
     func testCancellingTheComparisonTerminatesGit() async throws {
         let repository = try TemporaryGitRepository()
         let started = repository.url.appendingPathComponent("git-started")

@@ -83,25 +83,27 @@ public struct GitCLIRevisionProvider: RevisionProvider, Sendable {
         files.reserveCapacity(records.count)
         for record in records {
             try Task.checkCancellation()
-            let supportedOldPath = record.oldPath.flatMap { path in
-                SourceLanguage(path: path) == nil ? nil : path
+            let supportedOld = record.oldPath.flatMap { path in
+                SourceLanguage(path: path).map { (path: path, language: $0) }
             }
-            let supportedNewPath = record.newPath.flatMap { path in
-                SourceLanguage(path: path) == nil ? nil : path
+            let supportedNew = record.newPath.flatMap { path in
+                SourceLanguage(path: path).map { (path: path, language: $0) }
             }
             var oldSnapshot: SourceSnapshot?
-            if let supportedOldPath {
+            if let supportedOld {
                 oldSnapshot = try await loadSnapshot(
-                    path: supportedOldPath,
+                    path: supportedOld.path,
+                    language: supportedOld.language,
                     revision: canonicalBase,
                     repositoryURL: repositoryURL,
                     limits: limits
                 )
             }
             var newSnapshot: SourceSnapshot?
-            if let supportedNewPath {
+            if let supportedNew {
                 newSnapshot = try await loadSnapshot(
-                    path: supportedNewPath,
+                    path: supportedNew.path,
+                    language: supportedNew.language,
                     revision: canonicalTarget,
                     repositoryURL: repositoryURL,
                     limits: limits
@@ -131,6 +133,7 @@ public struct GitCLIRevisionProvider: RevisionProvider, Sendable {
 
     private func loadSnapshot(
         path: String,
+        language: SourceLanguage,
         revision: String,
         repositoryURL: URL,
         limits: AnalysisLimits
@@ -145,9 +148,6 @@ public struct GitCLIRevisionProvider: RevisionProvider, Sendable {
         }
         guard let text = String(data: data, encoding: .utf8) else {
             throw GitRevisionProviderError.invalidUTF8(context: path)
-        }
-        guard let language = SourceLanguage(path: path) else {
-            throw GitRevisionProviderError.unsupportedSourcePath(path)
         }
         return SourceSnapshot(
             path: path,

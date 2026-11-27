@@ -168,6 +168,39 @@ final class FlowDeltaAnalyzerTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(report.files.first?.diagnostics.count ?? 0, 3)
     }
 
+    func testRemovedFunctionWithoutAGraphIsNamedFromItsBaseRevision() throws {
+        let base = RevisionIdentity("base")
+        let report = try FlowDeltaAnalyzer().analyze(
+            RevisionComparison(
+                base: base,
+                target: RevisionIdentity("target"),
+                files: [FileComparison(
+                    old: SourceSnapshot(
+                        path: "Removed.swift",
+                        revision: base,
+                        language: .swift,
+                        text: "func kept() {}\nfunc removed() { print(1) }\n"
+                    ),
+                    new: SourceSnapshot(
+                        path: "Removed.swift",
+                        revision: RevisionIdentity("target"),
+                        language: .swift,
+                        text: "func kept() {}\n"
+                    )
+                )]
+            ),
+            limits: AnalysisLimits(maximumFlowNodesPerFunction: 0)
+        )
+
+        let removed = try XCTUnwrap(report.files.first?.entityChanges.first { $0.old?.name == "removed" })
+        XCTAssertEqual(removed.kind, .removed)
+        let diagnostic = try XCTUnwrap(report.files.first?.diagnostics.first {
+            $0.message == "No flow graph was available for \(removed.old?.qualifiedName ?? "")."
+        })
+        XCTAssertEqual(diagnostic.code, .unsupportedConstruct)
+        XCTAssertEqual(diagnostic.range, removed.old?.range)
+    }
+
     private func analyzeDemo() throws -> RevisionFlowDeltaReport {
         let old = """
         func calculate(_ values: [Int], enabled: Bool) -> Int {

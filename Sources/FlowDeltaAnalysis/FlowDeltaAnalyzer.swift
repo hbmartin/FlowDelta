@@ -121,9 +121,8 @@ public struct FlowDeltaAnalyzer: Sendable {
         do {
             let analysis = try sourceAnalyzer.analyze(snapshot, limits: limits)
             return (analysis, analysis.diagnostics)
-        } catch is CancellationError {
-            throw CancellationError()
-        } catch {
+        } catch let error where !(error is CancellationError) {
+            // A cancellation propagates; every other failure becomes this file's diagnostic.
             return (nil, [AnalysisDiagnostic(
                 severity: .error,
                 code: Self.diagnosticCode(for: error),
