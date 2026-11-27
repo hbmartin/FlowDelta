@@ -125,6 +125,51 @@ final class HeuristicConcernGrouperTests: XCTestCase {
         XCTAssertEqual(report.concern(containing: price)?.kind, .behavioral)
     }
 
+    func testATypesOwnLiteralsCompareExactly() throws {
+        let report = try analyze([(
+            "Label.swift",
+            "struct Label {\n    var text = \" a \"\n    func size() -> Int {\n        return 1\n    }\n}\n",
+            "struct Label {\n    var text = \"a\"\n    func size() -> Int {\n        return 2\n    }\n}\n"
+        )])
+        let label = try XCTUnwrap(report.entityChanges.first { $0.new?.name == "Label" })
+        XCTAssertEqual(
+            HeuristicConcernGrouper.classify(label, function: nil, in: report.entityChanges),
+            .behavioral,
+            "The field's initial value changed inside the quotes"
+        )
+        XCTAssertEqual(report.concern(containing: label)?.kind, .behavioral)
+    }
+
+    func testADeclarationHeaderChangeIsBehavioralEvenWhenTheBodyStays() throws {
+        let report = try analyze(
+            path: "a.py",
+            language: .python,
+            old: "def before():\n    return 1\n\ndef load():\n    return 2\n\ndef label():\n    return 'x'\n",
+            new: "async def after():\n    return 1\n\nasync def load():\n    return 2\n\ndef title():\n    return 'x'\n"
+        )
+        let after = try XCTUnwrap(report.entityChanges.first { $0.new?.name == "after" })
+        let load = try XCTUnwrap(report.entityChanges.first { $0.new?.name == "load" })
+        let title = try XCTUnwrap(report.entityChanges.first { $0.new?.name == "title" })
+        XCTAssertEqual(after.kind, .renamed)
+        XCTAssertEqual(
+            HeuristicConcernGrouper.classify(after, function: nil, in: []),
+            .behavioral,
+            "The renamed function became a coroutine function"
+        )
+        XCTAssertEqual(load.kind, .modified, "Adding async changes the declaration in place")
+        XCTAssertEqual(HeuristicConcernGrouper.classify(title, function: nil, in: []), .refactoring)
+
+        let swift = try analyze([(
+            "A.swift",
+            "func read() -> Int {\n    return 1\n}\n\nstruct Box {\n    func open() {}\n}\n",
+            "func read() async -> Int {\n    return 1\n}\n\nstruct Box: Sendable {\n    func open() {}\n}\n"
+        )])
+        XCTAssertEqual(swift.entityChanges.first { $0.new?.name == "read" }?.kind, .modified)
+        let box = try XCTUnwrap(swift.entityChanges.first { $0.new?.name == "Box" })
+        XCTAssertEqual(box.kind, .modified, "A new conformance changes the type")
+        XCTAssertEqual(HeuristicConcernGrouper.classify(box, function: nil, in: swift.entityChanges), .behavioral)
+    }
+
     func testARenameWithABodyChangeIsBehavioral() {
         let change = EntityChange(kind: .renamed, old: nil, new: nil, confidence: nil)
         XCTAssertEqual(HeuristicConcernGrouper.classify(change, function: nil, in: []), .behavioral)
@@ -171,6 +216,20 @@ final class HeuristicConcernGrouperTests: XCTestCase {
         XCTAssertEqual(sets.size(of: 2), 3)
         XCTAssertEqual(sets.size(of: 3), 1)
         XCTAssertEqual(sets.find(0), sets.find(2))
+    }
+
+    private func analyze(
+        path: String,
+        language: SourceLanguage,
+        old: String,
+        new: String
+    ) throws -> RevisionFlowDeltaReport {
+        let base = RevisionIdentity("base")
+        let target = RevisionIdentity("target")
+        return try FlowDeltaAnalyzer().analyze(RevisionComparison(base: base, target: target, files: [FileComparison(
+            old: SourceSnapshot(path: path, revision: base, language: language, text: old),
+            new: SourceSnapshot(path: path, revision: target, language: language, text: new)
+        )]))
     }
 
     private func analyze(_ files: [(path: String, old: String, new: String)]) throws -> RevisionFlowDeltaReport {

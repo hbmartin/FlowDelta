@@ -204,14 +204,18 @@ public struct HeuristicConcernGrouper: Sendable {
     ) -> MemberKind {
         switch change.kind {
         case .moved, .renamed:
-            // A rename keeps the signature; a changed parameter clause, such as a new default value, is behavior.
+            // A rename keeps the signature and the rest of the header; a changed parameter clause, such as a new
+            // default value, or a new `async` or modifier is behavior.
             if let old = change.old, let new = change.new, old.body.structuralDigest == new.body.structuralDigest,
-               signature(of: old) == signature(of: new)
+               signature(of: old) == signature(of: new), old.hasSameDeclarationHeader(as: new)
             {
                 return .refactoring
             }
             return .behavioral
         case .modified:
+            if let old = change.old, let new = change.new, !old.hasSameDeclarationHeader(as: new) {
+                return .behavioral
+            }
             if let function {
                 switch FlowNoiseFilter.noiseLevel(of: function) {
                 case .formatting?, .optionalSyntax?: return .cosmetic
@@ -271,13 +275,17 @@ public struct HeuristicConcernGrouper: Sendable {
                     .range.end
             }
             .map(\.range)
-        let comments = SourceLanguage(path: type.path)
-            .map { LanguageProfile.profile(for: $0).noise.commentKinds } ?? ["comment"]
+        let rules = SourceLanguage(path: type.path).map { LanguageProfile.profile(for: $0).noise }
+        let comments = rules?.commentKinds ?? ["comment"]
         func tokens(_ node: SyntaxNode) -> [String] {
             if comments.contains(node.kind) || inner
                 .contains(where: { $0.start <= node.range.start && node.range.end <= $0.end })
             {
                 return []
+            }
+            // A field's initial value can be a literal, so a change inside the quotes is the type's own change.
+            if rules?.literalKinds.contains(node.kind) == true {
+                return FlowNoiseClassifier.literalToken(of: node).map { [$0] } ?? []
             }
             if node.children.isEmpty {
                 let token = node.text.trimmingCharacters(in: .whitespacesAndNewlines)

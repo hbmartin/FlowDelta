@@ -26,6 +26,10 @@ public struct SourceEntity: Codable, Hashable, Sendable, Identifiable {
     /// The callable's named results, which a bare `return` reads, such as Go's `(n int, err error)`. Nil when the
     /// callable has none or the extractor does not read them for the language.
     public let resultNames: [String]?
+    /// The declaration's tokens outside its name, body and comments, such as `async def ( x = 1 ) :`: keywords,
+    /// modifiers, parameters, results and inheritance. A rename keeps them. Empty when the declaration is its own
+    /// body, and nil in reports made before 0.3.2.
+    public let declarationHeader: [String]?
 
     public init(
         id: StableID,
@@ -36,7 +40,8 @@ public struct SourceEntity: Codable, Hashable, Sendable, Identifiable {
         range: SourceRange,
         body: SyntaxNode,
         parameterNames: [String]? = nil,
-        resultNames: [String]? = nil
+        resultNames: [String]? = nil,
+        declarationHeader: [String]? = nil
     ) {
         self.id = id
         self.kind = kind
@@ -47,6 +52,13 @@ public struct SourceEntity: Codable, Hashable, Sendable, Identifiable {
         self.body = body
         self.parameterNames = parameterNames
         self.resultNames = resultNames
+        self.declarationHeader = declarationHeader
+    }
+
+    /// Whether `other` declares the same header, or either header is unknown.
+    public func hasSameDeclarationHeader(as other: SourceEntity) -> Bool {
+        guard let declarationHeader, let otherHeader = other.declarationHeader else { return true }
+        return declarationHeader == otherHeader
     }
 }
 

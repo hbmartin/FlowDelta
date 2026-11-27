@@ -102,7 +102,13 @@ public struct SourceEntityExtractor: Sendable {
             range: node.range,
             body: body,
             parameterNames: classification.callable ? Self.parameterNames(in: node, language: language) : nil,
-            resultNames: classification.callable ? Self.resultNames(in: node, language: language) : nil
+            resultNames: classification.callable ? Self.resultNames(in: node, language: language) : nil,
+            declarationHeader: DeclarationHeader.tokens(
+                of: node,
+                name: nameNode,
+                body: body,
+                rules: LanguageProfile.profile(for: language).noise
+            )
         )
         var childContainers = containers
         if classification.container {
