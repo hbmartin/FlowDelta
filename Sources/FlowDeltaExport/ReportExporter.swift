@@ -58,10 +58,11 @@ public struct FlowDeltaReportExporter: Sendable {
         var rows: [[String]] = [header]
         var headings: [Int: String] = [:]
         for section in context.sections {
-            if let title = section.title {
-                headings[rows.count] = title
+            if let heading = section.heading {
+                headings[rows.count] = heading
             }
-            for (file, change) in section.changes {
+            for entry in section.entries {
+                let (file, change) = (entry.file, entry.change)
                 let entity = change.new ?? change.old
                 rows.append([
                     change.kind.rawValue.uppercased(),
@@ -156,11 +157,12 @@ public struct FlowDeltaReportExporter: Sendable {
         }
         lines.append(contentsOf: ["## Entity triage", ""])
         for (index, section) in context.sections.enumerated() {
-            if let title = section.title {
-                lines.append(contentsOf: (index == 0 ? [] : [""]) + ["### \(title)", ""])
+            if let heading = section.heading {
+                lines.append(contentsOf: (index == 0 ? [] : [""]) + ["### \(heading)", ""])
             }
             lines.append(contentsOf: ["| Change | Entity | Path | Confidence |", "| --- | --- | --- | --- |"])
-            for (file, change) in section.changes {
+            for entry in section.entries {
+                let (file, change) = (entry.file, entry.change)
                 let entity = change.new ?? change.old
                 lines.append(
                     "| \(change.kind.rawValue) | `\(escapeMarkdown(entity?.qualifiedName ?? "<unknown>"))` | `\(escapeMarkdown(entity?.path ?? file.path))` | \(confidenceLabel(change.confidence)) |"
