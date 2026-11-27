@@ -51,14 +51,21 @@ public final class FlowSourceView: NSView {
     }
 
     public func select(_ range: SourceRange?) {
-        guard let range, let snapshot else { return }
+        if highlight(range) {
+            window?.makeFirstResponder(textView)
+        }
+    }
+
+    @discardableResult
+    func highlight(_ range: SourceRange?) -> Bool {
+        guard let range, let snapshot else { return false }
         let maximum = snapshot.text.utf16.count
         let location = min(maximum, max(0, range.start.utf16Offset))
         let length = min(maximum - location, max(0, range.end.utf16Offset - location))
         let selection = NSRange(location: location, length: length)
         textView.setSelectedRange(selection)
         textView.scrollRangeToVisible(selection)
-        window?.makeFirstResponder(textView)
+        return true
     }
 
     private func configureView() {

@@ -235,9 +235,11 @@ extension FlowDeltaReviewView {
     func setComparisonGraphVisible(_ visible: Bool) {
         if visible, comparisonGraphScrollView.superview == nil {
             graphHostSplit.addArrangedSubview(comparisonGraphScrollView)
+            configureKeyViewLoop()
         } else if !visible, comparisonGraphScrollView.superview === graphHostSplit {
             comparisonGraphScrollView.removeFromSuperview()
             comparisonGraphView.selectNode(withStableID: nil)
+            configureKeyViewLoop()
         }
     }
 
@@ -265,6 +267,6 @@ extension FlowDeltaReviewView {
         let snapshot = usesBase ? file.comparison.old ?? file.comparison.new : file.comparison.new ?? file.comparison
             .old
         sourceView.display(snapshot, title: usesBase ? "Base call source" : "Call source")
-        sourceView.select(callNode.range)
+        sourceView.highlight(callNode.range)
     }
 }

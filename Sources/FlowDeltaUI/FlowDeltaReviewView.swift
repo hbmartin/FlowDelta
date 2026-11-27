@@ -278,7 +278,7 @@ public final class FlowDeltaReviewView: NSView, NSTableViewDataSource, NSTableVi
             (view === graphView && modeControl.selectedSegment != 1 && nodeDelta.new != nil)
         let snapshot = usesTarget ? currentFile.comparison.new : currentFile.comparison.old
         sourceView.display(snapshot, title: usesTarget ? "Target source" : "Base source")
-        sourceView.select((usesTarget ? nodeDelta.new : nodeDelta.old)?.sourceRanges.first
+        sourceView.highlight((usesTarget ? nodeDelta.new : nodeDelta.old)?.sourceRanges.first
             ?? (nodeDelta.new ?? nodeDelta.old)?.sourceRanges.first)
         Self.logger.debug("Selected flow node \(stableID, privacy: .public) for source synchronization")
         updateSliceFocus()

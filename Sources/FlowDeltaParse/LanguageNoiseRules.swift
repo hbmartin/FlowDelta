@@ -4,7 +4,7 @@ import FlowDeltaCore
 public struct LanguageNoiseRules: Hashable, Sendable {
     /// Leaf and subtree kinds that are comments.
     public let commentKinds: Set<String>
-    /// Tokens that are optional wherever they appear, such as a statement-ending `;`.
+    /// Tokens that can be optional in a recognized syntax role, such as a statement-ending `;`.
     public let optionalTokens: Set<String>
     /// Receivers that are optional before `.`. No built-in language has one: a parameter or local can shadow a
     /// member, so Swift's `self.x` and `x` can name different values, and `this.` and `self.` reach members in
