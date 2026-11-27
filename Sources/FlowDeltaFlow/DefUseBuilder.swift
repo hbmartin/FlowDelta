@@ -133,12 +133,15 @@ public struct DefUseBuilder: Sendable {
         return result
     }
 
-    private func parameterNames(in entity: SourceEntity, language _: SourceLanguage) -> Set<String> {
+    private func parameterNames(in entity: SourceEntity, language: SourceLanguage) -> Set<String> {
         guard let opening = entity.qualifiedName.firstIndex(of: "("),
               let closing = entity.qualifiedName.lastIndex(of: ")"),
               opening < closing
         else { return [] }
         let clause = entity.qualifiedName[entity.qualifiedName.index(after: opening) ..< closing]
+        if language == .go {
+            return goParameterNames(in: splitParameters(String(clause)))
+        }
         return Set(splitParameters(String(clause)).compactMap { parameter in
             var declaration = parameter.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !declaration.isEmpty, !declaration.hasPrefix("{"), !declaration.hasPrefix("[") else {
@@ -160,6 +163,20 @@ public struct DefUseBuilder: Sendable {
                   candidate.range(of: #"^[A-Za-z_$][A-Za-z0-9_$]*$"#, options: .regularExpression) != nil
             else { return nil }
             return candidate
+        })
+    }
+
+    /// Go names come before their types, and either every parameter is named or none is: `a, b int` names `a` and
+    /// `b`, while `int, string` names nothing.
+    private func goParameterNames(in parameters: [String]) -> Set<String> {
+        let pieces = parameters.map { $0.split(whereSeparator: \.isWhitespace).map(String.init) }.filter { !$0.isEmpty }
+        guard pieces.contains(where: { $0.count > 1 }) else { return [] }
+        return Set(pieces.compactMap { piece in
+            let name = piece[0]
+            guard name != "_", name.range(of: #"^[A-Za-z_][A-Za-z0-9_]*$"#, options: .regularExpression) != nil else {
+                return nil
+            }
+            return name
         })
     }
 

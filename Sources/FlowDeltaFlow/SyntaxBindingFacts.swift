@@ -7,8 +7,11 @@ struct SyntaxBindingFacts {
     private let profile: LanguageProfile
     private let syntaxByID: [StableID: SyntaxNode]
     private let parentByID: [StableID: SyntaxNode]
-    /// Names that `global` or `nonlocal` statements anywhere in the body declare non-local.
+    /// Names that the function's own `global` or `nonlocal` statements declare non-local. Statements in nested
+    /// functions and classes declare names of those scopes.
     let nonLocalNames: Set<String>
+    /// The named results a bare `return` reads.
+    private let resultNames: Set<String>
 
     private static let bodyFields: Set<String> = ["body", "consequence", "alternative"]
     private static let clauseKinds: Set<String> = [
@@ -29,9 +32,21 @@ struct SyntaxBindingFacts {
             }
         }
         parentByID = parents
-        nonLocalNames = Set(all.filter { rules.nonLocalKinds.contains($0.kind) }.flatMap { statement in
+        var statements: [SyntaxNode] = []
+        func collectNonLocal(in node: SyntaxNode) {
+            for child in node.children {
+                if rules.nonLocalKinds.contains(child.kind) {
+                    statements.append(child)
+                } else if !rules.nestedDeclarationKinds.contains(child.kind), !rules.scopedKinds.contains(child.kind) {
+                    collectNonLocal(in: child)
+                }
+            }
+        }
+        collectNonLocal(in: entity.body)
+        nonLocalNames = Set(statements.flatMap { statement in
             statement.descendants.filter { rules.identifierKinds.contains($0.kind) }.map(\.text)
         })
+        resultNames = Set(entity.resultNames ?? [])
     }
 
     func facts(for node: FlowNode) -> LexicalFacts {
@@ -56,6 +71,10 @@ struct SyntaxBindingFacts {
                 continue
             default:
                 walker.walk(root)
+                if rules.bareReturnKinds.contains(root.kind), !root.children.contains(where: \.isNamed) {
+                    // A bare `return` returns the named results.
+                    walker.read(resultNames)
+                }
             }
         }
         let ignored = rules.ignoredNames
@@ -89,20 +108,43 @@ struct BindingWalker {
     let rules: LanguageBindingRules
     private(set) var definitions: Set<String> = []
     private(set) var uses: Set<String> = []
+    /// Uses that come before any definition of their name in evaluation order, which a closure captures.
+    private(set) var freeUses: Set<String> = []
 
     mutating func walk(_ node: SyntaxNode) {
         let kind = node.kind
         if rules.identifierKinds.contains(kind) {
-            uses.insert(node.text)
+            use(node.text)
         } else if kind == "comment" || rules.nonLocalKinds.contains(kind) {
             return
         } else if rules.scopedKinds.contains(kind) {
             walkScoped(node)
         } else if let field = rules.targetFields[kind] {
             walkAssignment(node, targetField: field)
+        } else if let keyTypes = rules.evaluatedKeyLiterals[kind],
+                  let type = node.firstChild(fieldName: "type"), keyTypes.contains(type.kind)
+        {
+            walkEvaluatedKeys(node)
         } else {
             walkDeclarationOrChildren(node)
         }
+    }
+
+    mutating func read(_ names: Set<String>) {
+        for name in names.sorted() {
+            use(name)
+        }
+    }
+
+    private mutating func use(_ name: String) {
+        uses.insert(name)
+        if !definitions.contains(name) {
+            freeUses.insert(name)
+        }
+    }
+
+    private mutating func define(_ name: String) {
+        definitions.insert(name)
     }
 
     /// Declarations, aliases, member accesses and keyed elements, or else every child.
@@ -111,12 +153,12 @@ struct BindingWalker {
         if rules.nestedDeclarationKinds.contains(kind) {
             let declaration = node.firstChild(fieldName: "definition") ?? node
             if let name = declaration.firstChild(fieldName: "name"), rules.identifierKinds.contains(name.kind) {
-                definitions.insert(name.text)
+                define(name.text)
             }
         } else if rules.declarationKinds.contains(kind) {
             for child in node.children where !isType(child) {
                 if child.fieldName == "name", rules.identifierKinds.contains(child.kind) {
-                    definitions.insert(child.text)
+                    define(child.text)
                 } else {
                     walk(child)
                 }
@@ -139,7 +181,7 @@ struct BindingWalker {
         var afterAs = false
         for child in node.children where !isType(child) {
             if afterAs, rules.identifierKinds.contains(child.kind) {
-                definitions.insert(child.text)
+                define(child.text)
             } else {
                 walk(child)
             }
@@ -163,27 +205,31 @@ struct BindingWalker {
         targetField field: String,
         skipping isSkipped: (SyntaxNode) -> Bool = { _ in false }
     ) {
+        if let valueField = rules.valueFields[node.kind], node.firstChild(fieldName: valueField) == nil {
+            // An annotation without a value, such as `x: int`, writes nothing.
+            return
+        }
         let target = field.isEmpty ? node.children.first(where: \.isNamed) : node.firstChild(fieldName: field)
         let operatorText = node.firstChild(fieldName: "operator")?.text
             ?? node.children.first { !$0.isNamed && $0.text.hasSuffix("=") }?.text
         let compound = rules.compoundKinds.contains(node.kind)
             || (rules.operatorAssignmentKinds.contains(node.kind) && operatorText != "=" && operatorText != ":=")
-        for child in node.children where !isType(child) && !isSkipped(child) {
-            if child.id == target?.id {
-                bind(child, alsoUse: compound)
-            } else {
-                walk(child)
-            }
+        // The value is evaluated before the target is written, so `x := x + 1` reads the previous `x`.
+        for child in node.children where !isType(child) && !isSkipped(child) && child.id != target?.id {
+            walk(child)
+        }
+        if let target, !isType(target), !isSkipped(target) {
+            bind(target, alsoUse: compound)
         }
     }
 
     /// Binds the identifiers a target names; member and index targets only read their operands.
     private mutating func bind(_ target: SyntaxNode, alsoUse: Bool) {
         if rules.identifierKinds.contains(target.kind) {
-            definitions.insert(target.text)
             if alsoUse {
-                uses.insert(target.text)
+                use(target.text)
             }
+            define(target.text)
         } else if rules.targetGroupKinds.contains(target.kind) || rules.aliasKinds.contains(target.kind) {
             for child in target.children where child.isNamed {
                 bind(child, alsoUse: alsoUse)
@@ -212,20 +258,76 @@ struct BindingWalker {
         return named.count == 1 && isBareIdentifier(named[0])
     }
 
+    /// A map literal's keys are values it reads, unlike a struct literal's field labels.
+    private mutating func walkEvaluatedKeys(_ node: SyntaxNode) {
+        for child in node.children where !isType(child) {
+            guard child.fieldName == "body" else {
+                walk(child)
+                continue
+            }
+            for element in child.children {
+                if rules.keyedKinds.contains(element.kind) {
+                    walkChildren(of: element)
+                } else {
+                    walk(element)
+                }
+            }
+        }
+    }
+
     /// A lambda, comprehension or function literal reads outer names but keeps the names it binds.
     private mutating func walkScoped(_ node: SyntaxNode) {
+        if node.children.contains(where: { rules.comprehensionClauseKinds.contains($0.kind) }) {
+            walkComprehension(node)
+            return
+        }
         var inner = BindingWalker(rules: rules)
         var bound: Set<String> = []
         for child in node.children where !isType(child) {
-            if rules.scopedBindingFields.contains(child.fieldName ?? "") {
-                bound
-                    .formUnion(([child] + child.descendants).filter { rules.identifierKinds.contains($0.kind) }
-                        .map(\.text))
-            } else {
+            guard rules.scopedBindingFields.contains(child.fieldName ?? "") else {
                 inner.walk(child)
+                continue
+            }
+            let parameters = rules.identifierKinds.contains(child.kind) ? [child] : child.children.filter(\.isNamed)
+            for parameter in parameters {
+                bound.formUnion(rules.declaredNames(ofParameter: parameter))
+                // Default values are evaluated where the lambda or literal is created.
+                for value in parameter.children where value.fieldName == "value" {
+                    walk(value)
+                }
             }
         }
-        uses.formUnion(inner.uses.subtracting(inner.definitions).subtracting(bound))
+        read(inner.freeUses.subtracting(bound))
+    }
+
+    /// A comprehension's loop targets stay inside it. Its first iterable is evaluated in the enclosing scope, and an
+    /// assignment expression inside it binds in the enclosing scope (PEP 572).
+    private mutating func walkComprehension(_ node: SyntaxNode) {
+        var inner = BindingWalker(rules: rules)
+        var targets: Set<String> = []
+        var isFirstClause = true
+        for child in node.children where !isType(child) {
+            guard rules.comprehensionClauseKinds.contains(child.kind) else {
+                inner.walk(child)
+                continue
+            }
+            let field = rules.targetFields[child.kind] ?? "left"
+            for part in child.children where !isType(part) {
+                if part.fieldName == field {
+                    targets.formUnion(([part] + part.descendants).filter { rules.identifierKinds.contains($0.kind) }
+                        .map(\.text))
+                } else if isFirstClause, part.fieldName == "right" {
+                    walk(part)
+                } else {
+                    inner.walk(part)
+                }
+            }
+            isFirstClause = false
+        }
+        read(inner.uses.subtracting(targets))
+        for name in inner.definitions.subtracting(targets).sorted() {
+            define(name)
+        }
     }
 
     private func isType(_ node: SyntaxNode) -> Bool {

@@ -23,6 +23,9 @@ public struct SourceEntity: Codable, Hashable, Sendable, Identifiable {
     /// The callable's receiver, parameter and named-result names, read from its syntax. Nil when the extractor
     /// does not read them for the language, and in 0.2 reports; data flow then parses `qualifiedName`.
     public let parameterNames: [String]?
+    /// The callable's named results, which a bare `return` reads, such as Go's `(n int, err error)`. Nil when the
+    /// callable has none or the extractor does not read them for the language.
+    public let resultNames: [String]?
 
     public init(
         id: StableID,
@@ -32,7 +35,8 @@ public struct SourceEntity: Codable, Hashable, Sendable, Identifiable {
         path: String,
         range: SourceRange,
         body: SyntaxNode,
-        parameterNames: [String]? = nil
+        parameterNames: [String]? = nil,
+        resultNames: [String]? = nil
     ) {
         self.id = id
         self.kind = kind
@@ -42,6 +46,7 @@ public struct SourceEntity: Codable, Hashable, Sendable, Identifiable {
         self.range = range
         self.body = body
         self.parameterNames = parameterNames
+        self.resultNames = resultNames
     }
 }
 

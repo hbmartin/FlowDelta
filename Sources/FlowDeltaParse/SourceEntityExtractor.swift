@@ -101,7 +101,8 @@ public struct SourceEntityExtractor: Sendable {
             path: path,
             range: node.range,
             body: body,
-            parameterNames: classification.callable ? Self.parameterNames(in: node, language: language) : nil
+            parameterNames: classification.callable ? Self.parameterNames(in: node, language: language) : nil,
+            resultNames: classification.callable ? Self.resultNames(in: node, language: language) : nil
         )
         var childContainers = containers
         if classification.container {
@@ -209,33 +210,20 @@ public struct SourceEntityExtractor: Sendable {
         var names: [String] = []
         for list in lists where list.kind.contains("parameter") {
             for parameter in list.children where parameter.isNamed {
-                names += parameterNames(declaredBy: parameter, rules: rules)
+                names += rules.declaredNames(ofParameter: parameter)
             }
         }
         return names.filter { !rules.ignoredNames.contains($0) }
     }
 
-    private static func parameterNames(declaredBy parameter: SyntaxNode, rules: LanguageBindingRules) -> [String] {
-        if rules.identifierKinds.contains(parameter.kind) {
-            return [parameter.text]
-        }
-        let named = parameter.children.filter { $0.fieldName == "name" && rules.identifierKinds.contains($0.kind) }
-        if !named.isEmpty {
-            return named.map(\.text)
-        }
-        /// `*args`, `**kwargs` and `name: type`: the first identifier outside the type and default.
-        func first(_ node: SyntaxNode) -> String? {
-            for child in node.children where child.fieldName != "type" && child.fieldName != "value" {
-                if rules.identifierKinds.contains(child.kind) {
-                    return child.text
-                }
-                if let found = first(child) {
-                    return found
-                }
-            }
-            return nil
-        }
-        return first(parameter).map { [$0] } ?? []
+    /// Named results, which a bare `return` reads, for the languages whose data flow reads syntax.
+    static func resultNames(in declaration: SyntaxNode, language: SourceLanguage) -> [String]? {
+        guard let rules = LanguageProfile.profile(for: language).binding, !rules.bareReturnKinds.isEmpty,
+              let list = declaration.firstChild(fieldName: "result"), list.kind.contains("parameter")
+        else { return nil }
+        let names = list.children.filter(\.isNamed).flatMap { rules.declaredNames(ofParameter: $0) }
+            .filter { !rules.ignoredNames.contains($0) }
+        return names.isEmpty ? nil : names
     }
 
     private func goReceiverType(in declaration: SyntaxNode) -> String? {

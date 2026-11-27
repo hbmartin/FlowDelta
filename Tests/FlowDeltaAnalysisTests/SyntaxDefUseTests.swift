@@ -1,5 +1,6 @@
 import FlowDeltaAnalysis
 import FlowDeltaCore
+import FlowDeltaFlow
 @testable import FlowDeltaParse
 import XCTest
 
@@ -91,6 +92,80 @@ final class SyntaxDefUseTests: XCTestCase {
         XCTAssertTrue(symbols.isDisjoint(with: ["_", "Count", "Name", "k", "inner", "int"]), "\(symbols)")
     }
 
+    func testPythonScopesReadAndWriteTheEnclosingFunctionWhereTheLanguageSays() throws {
+        let edges = try dataEdges(path: "scope.py", language: .python, function: "outer", text: """
+        def outer(seed, xs, x):
+            limit = 1
+            def inner():
+                global limit
+                return limit
+            fn = lambda value=seed: value
+            same = [xs for xs in xs]
+            items = [(last := n) for n in (x,)]
+            x: int
+            return limit, fn, same, items, last, x
+        """)
+        for (symbol, definition, use) in [
+            ("limit", "limit = 1", "return limit"),
+            ("seed", "Entry", "fn = lambda"),
+            ("xs", "Entry", "same = ["),
+            ("x", "Entry", "items = ["),
+            ("last", "items = [", "return limit"),
+            ("x", "Entry", "return limit")
+        ] {
+            XCTAssertTrue(edges.contains { $0.matches(symbol, definition, use) }, "\(symbol): \(definition) → \(use)")
+        }
+        XCTAssertFalse(edges.contains { $0.matches("x", "x: int", "return") }, "An annotation alone writes nothing")
+        let symbols = Set(edges.map(\.symbol))
+        XCTAssertTrue(symbols.isDisjoint(with: ["value", "n"]), "\(symbols)")
+    }
+
+    func testGoReadsNamedResultsMapKeysAndCapturesBeforeALocalDeclaration() throws {
+        let edges = try dataEdges(path: "scope.go", language: .go, text: """
+        func outer(x int, k string) (n int) {
+            n = 7
+            counts := map[string]int{k: 1}
+            point := Point{X: x}
+            fn := func() int { x := x + 1; return x }
+            use(counts, point, fn)
+            return
+        }
+        """)
+        for (symbol, definition, use) in [
+            ("n", "n = 7", "return"),
+            ("k", "Entry", "counts := map"),
+            ("x", "Entry", "point := Point"),
+            ("x", "Entry", "fn := func()")
+        ] {
+            XCTAssertTrue(edges.contains { $0.matches(symbol, definition, use) }, "\(symbol): \(definition) → \(use)")
+        }
+        XCTAssertFalse(edges.contains { $0.symbol == "X" }, "A struct field label is not a variable")
+    }
+
+    func testGoParameterNamesFallBackToTheDeclarationWithoutSyntaxMetadata() throws {
+        func edges(_ text: String) throws -> [DataFlowEdge] {
+            let snapshot = SourceSnapshot(path: "a.go", revision: RevisionIdentity("r"), language: .go, text: text)
+            let parsed = try XCTUnwrap(
+                SourceEntityExtractor().entities(in: SourceSyntaxParser().parse(snapshot)).first { $0.kind != .type }
+            )
+            let entity = SourceEntity(
+                id: parsed.id,
+                kind: parsed.kind,
+                name: parsed.name,
+                qualifiedName: parsed.qualifiedName,
+                path: parsed.path,
+                range: parsed.range,
+                body: parsed.body
+            )
+            let graph = try SourceControlFlowBuilder().build(for: entity, language: .go)
+            return try XCTUnwrap(DefUseBuilder().build(for: entity, graph: graph, language: .go)).edges
+        }
+        let named = try edges("func scale(n int, a, b float64) float64 {\n\treturn float64(n) * a * b\n}\n")
+        XCTAssertEqual(Set(named.map(\.symbol)), ["n", "a", "b"])
+        let unnamed = try edges("func scale(int, float64) float64 {\n\treturn 1\n}\n")
+        XCTAssertTrue(unnamed.isEmpty, "Unnamed Go parameters are types")
+    }
+
     func testParameterNamesComeFromTheDeclarationForPythonAndGo() throws {
         func parameters(_ text: String, _ path: String, _ language: SourceLanguage) throws -> [String]? {
             let snapshot = SourceSnapshot(path: path, revision: RevisionIdentity("r"), language: language, text: text)
@@ -127,7 +202,12 @@ final class SyntaxDefUseTests: XCTestCase {
         }
     }
 
-    private func dataEdges(path: String, language: SourceLanguage, text: String) throws -> [Edge] {
+    private func dataEdges(
+        path: String,
+        language: SourceLanguage,
+        function name: String? = nil,
+        text: String
+    ) throws -> [Edge] {
         let target = RevisionIdentity("target")
         let report = try FlowDeltaAnalyzer().analyze(RevisionComparison(
             base: RevisionIdentity("base"),
@@ -137,7 +217,9 @@ final class SyntaxDefUseTests: XCTestCase {
                 new: SourceSnapshot(path: path, revision: target, language: language, text: text)
             )]
         ))
-        let function = try XCTUnwrap(report.functionDeltas.first)
+        let function = try XCTUnwrap(report.functionDeltas.first { delta in
+            name.map { delta.entityChange.new?.name == $0 } ?? true
+        })
         let graph = try XCTUnwrap(function.dataFlow?.newGraph)
         let flow = try XCTUnwrap(function.newGraph)
         let labels = Dictionary(uniqueKeysWithValues: flow.nodes.map { (

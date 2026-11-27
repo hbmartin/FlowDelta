@@ -32,6 +32,39 @@ public struct LanguageBindingRules: Hashable, Sendable {
     public let keyedKinds: Set<String>
     /// Fields that hold types, which are never data.
     public let typeFields: Set<String>
+    /// Assignment kinds that write their target only when this field holds a value, such as Python's `x: int`.
+    public let valueFields: [String: String]
+    /// Comprehension clauses that bind loop targets. The first clause's `right` runs in the enclosing scope, and an
+    /// assignment expression anywhere in the comprehension binds there too.
+    public let comprehensionClauseKinds: Set<String>
+    /// Literal kinds whose keys are evaluated when their `type` field has one of these kinds, such as a Go map.
+    public let evaluatedKeyLiterals: [String: Set<String>]
+    /// Return statements that read the callable's named results when they return no expression.
+    public let bareReturnKinds: Set<String>
+
+    /// The names one parameter declares: a bare identifier, its `name` fields, or else the first identifier
+    /// outside its type and default, as in `*args`, `**kwargs` and `name: type`.
+    public func declaredNames(ofParameter parameter: SyntaxNode) -> [String] {
+        if identifierKinds.contains(parameter.kind) {
+            return [parameter.text]
+        }
+        let named = parameter.children.filter { $0.fieldName == "name" && identifierKinds.contains($0.kind) }
+        if !named.isEmpty {
+            return named.map(\.text)
+        }
+        func first(_ node: SyntaxNode) -> String? {
+            for child in node.children where child.fieldName != "type" && child.fieldName != "value" {
+                if identifierKinds.contains(child.kind) {
+                    return child.text
+                }
+                if let found = first(child) {
+                    return found
+                }
+            }
+            return nil
+        }
+        return first(parameter).map { [$0] } ?? []
+    }
 }
 
 public extension LanguageProfile {
@@ -65,7 +98,11 @@ public extension LanguageProfile {
                 nestedDeclarationKinds: ["function_definition", "class_definition", "decorated_definition"],
                 memberFields: ["attribute": "attribute"],
                 keyedKinds: ["keyword_argument"],
-                typeFields: ["type", "return_type"]
+                typeFields: ["type", "return_type"],
+                valueFields: ["assignment": "right"],
+                comprehensionClauseKinds: ["for_in_clause"],
+                evaluatedKeyLiterals: [:],
+                bareReturnKinds: []
             )
         case .go:
             LanguageBindingRules(
@@ -86,7 +123,11 @@ public extension LanguageProfile {
                 nestedDeclarationKinds: [],
                 memberFields: [:],
                 keyedKinds: ["keyed_element"],
-                typeFields: ["type"]
+                typeFields: ["type"],
+                valueFields: [:],
+                comprehensionClauseKinds: [],
+                evaluatedKeyLiterals: ["composite_literal": ["map_type"]],
+                bareReturnKinds: ["return_statement"]
             )
         }
     }
