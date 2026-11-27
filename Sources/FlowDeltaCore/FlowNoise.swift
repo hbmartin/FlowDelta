@@ -80,6 +80,27 @@ public enum FlowNoiseFilter {
         return FlowNoiseFilterResult(function: filtered, hiddenNodeIDs: hidden)
     }
 
+    /// The report with every function delta as `policy` shows it.
+    public static func apply(_ policy: FlowNoisePolicy, to report: RevisionFlowDeltaReport) -> RevisionFlowDeltaReport {
+        guard policy != .showAll else { return report }
+        let files = report.files.map { file in
+            FileFlowDelta(
+                comparison: file.comparison,
+                entityChanges: file.entityChanges,
+                functionDeltas: file.functionDeltas.map { apply(policy, to: $0).function },
+                diagnostics: file.diagnostics
+            )
+        }
+        return RevisionFlowDeltaReport(
+            base: report.base,
+            target: report.target,
+            files: files,
+            callGraph: report.callGraph,
+            diagnostics: report.diagnostics,
+            concerns: report.concerns
+        )
+    }
+
     /// How many nodes `policy` hides across a report, for a "N hidden — Show" link.
     public static func hiddenNodeCount(_ policy: FlowNoisePolicy, in report: RevisionFlowDeltaReport) -> Int {
         report.functionDeltas.reduce(0) { count, function in

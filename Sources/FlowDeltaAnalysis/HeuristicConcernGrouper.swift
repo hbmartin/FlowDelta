@@ -233,7 +233,26 @@ public struct HeuristicConcernGrouper: Sendable {
     ) -> Set<String> {
         guard let new = change.new else { return [] }
         let tokens = isType ? ownTokens(of: new, members: entities.compactMap(\.new)) : new.body.normalizedTokens
-        return Set(tokens.filter { $0 != new.name })
+        return references(in: tokens).subtracting([new.name])
+    }
+
+    /// Bare identifiers: not a member after `.` (calls reach those through the call graph), and not an argument
+    /// label, keyword argument or assignment target before `:` or `=`. A type annotation before `=` still counts.
+    static func references(in tokens: [String]) -> Set<String> {
+        var names: Set<String> = []
+        for (index, token) in tokens.enumerated() {
+            guard let first = token.unicodeScalars.first,
+                  first == "_" || CharacterSet.letters.contains(first),
+                  token.unicodeScalars.allSatisfy({ $0 == "_" || CharacterSet.alphanumerics.contains($0) })
+            else { continue }
+            let previous = index > 0 ? tokens[index - 1] : nil
+            let next = index + 1 < tokens.count ? tokens[index + 1] : nil
+            if previous == "." || next == ":" || (next == "=" && previous != ":") {
+                continue
+            }
+            names.insert(token)
+        }
+        return names
     }
 
     /// The type's tokens outside the entities declared inside it.

@@ -17,34 +17,51 @@ public struct FlowDeltaReportExporter: Sendable {
 
     public func render(
         _ report: RevisionFlowDeltaReport,
-        format: FlowDeltaExportFormat
+        format: FlowDeltaExportFormat,
+        options: FlowDeltaExportOptions = .default
     ) throws -> String {
+        let context = ExportContext(report: report, options: options)
         switch format {
         case .table:
-            table(report)
+            return table(context)
         case .json:
-            try json(report)
+            guard let walkthrough = context.walkthrough else { return try json(context.report) }
+            return try encode(FlowDeltaExportDocument(report: context.report, walkthrough: walkthrough))
         case .mermaid:
-            mermaid(report)
+            return mermaid(context.report)
         case .markdown:
-            markdown(report)
+            return markdown(context)
         }
     }
 
     public func json(_ report: RevisionFlowDeltaReport) throws -> String {
+        try encode(report)
+    }
+
+    private func encode(_ value: some Encodable) throws -> String {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
-        let data = try encoder.encode(report)
-        guard let value = String(data: data, encoding: .utf8) else {
+        let data = try encoder.encode(value)
+        guard let rendered = String(data: data, encoding: .utf8) else {
             throw FlowDeltaExportError.stringEncoding
         }
-        return value + "\n"
+        return rendered + "\n"
     }
 
     public func table(_ report: RevisionFlowDeltaReport) -> String {
-        var rows: [[String]] = [["CHANGE", "ENTITY", "PATH", "CONFIDENCE"]]
-        for file in report.files {
-            for change in file.entityChanges {
+        table(ExportContext(report: report, options: .default))
+    }
+
+    func table(_ context: ExportContext) -> String {
+        let report = context.report
+        let header = ["CHANGE", "ENTITY", "PATH", "CONFIDENCE"]
+        var rows: [[String]] = [header]
+        var headings: [Int: String] = [:]
+        for section in context.sections {
+            if let title = section.title {
+                headings[rows.count] = title
+            }
+            for (file, change) in section.changes {
                 let entity = change.new ?? change.old
                 rows.append([
                     change.kind.rawValue.uppercased(),
@@ -57,24 +74,36 @@ public struct FlowDeltaReportExporter: Sendable {
         let widths = rows[0].indices.map { column in
             rows.map { $0[column].count }.max() ?? 0
         }
-        var lines = rows.enumerated().map { index, row in
+        var lines: [String] = []
+        for (index, row) in rows.enumerated() {
+            if let heading = headings[index] {
+                lines.append("▸ \(heading)")
+            }
             let rendered = row.enumerated().map { column, value in
                 value.padding(toLength: widths[column], withPad: " ", startingAt: 0)
             }.joined(separator: "  ")
             if index == 0 {
-                return rendered + "\n" + widths.map { String(repeating: "-", count: $0) }.joined(separator: "  ")
+                lines.append(rendered + "\n" + widths.map { String(repeating: "-", count: $0) }.joined(separator: "  "))
+            } else {
+                lines.append(rendered)
             }
-            return rendered
         }
         lines.append("")
         lines.append(summary(report))
-        for function in report.functionDeltas where function.nodes.contains(where: { $0.state != .retained }) {
+        lines.append(contentsOf: context.notes)
+        for function in context.functions where function.nodes.contains(where: { $0.state != .retained }) {
             let classifications = function.classifications.map(\.humanReadable).joined(separator: ", ")
             lines.append(
                 "• \(function.displayName): "
                     + stateSummary(function)
                     + (classifications.isEmpty ? "" : " • \(classifications)")
             )
+        }
+        if let walkthrough = context.walkthrough {
+            lines.append("")
+            lines.append("Walkthrough:")
+            lines
+                .append(contentsOf: walkthrough.enumerated().map { "  \($0 + 1). \($1.functionName): \($1.narration)" })
         }
         return lines.joined(separator: "\n") + "\n"
     }
@@ -109,20 +138,29 @@ public struct FlowDeltaReportExporter: Sendable {
     }
 
     public func markdown(_ report: RevisionFlowDeltaReport) -> String {
+        markdown(ExportContext(report: report, options: .default))
+    }
+
+    func markdown(_ context: ExportContext) -> String {
+        let report = context.report
         var lines = [
             "# FlowDelta report",
             "",
             "`\(report.base.value)` → `\(report.target.value)`",
             "",
             summary(report),
-            "",
-            "## Entity triage",
-            "",
-            "| Change | Entity | Path | Confidence |",
-            "| --- | --- | --- | --- |"
+            ""
         ]
-        for file in report.files {
-            for change in file.entityChanges {
+        if !context.notes.isEmpty {
+            lines.append(contentsOf: context.notes.map { "> \($0)" } + [""])
+        }
+        lines.append(contentsOf: ["## Entity triage", ""])
+        for (index, section) in context.sections.enumerated() {
+            if let title = section.title {
+                lines.append(contentsOf: (index == 0 ? [] : [""]) + ["### \(title)", ""])
+            }
+            lines.append(contentsOf: ["| Change | Entity | Path | Confidence |", "| --- | --- | --- | --- |"])
+            for (file, change) in section.changes {
                 let entity = change.new ?? change.old
                 lines.append(
                     "| \(change.kind.rawValue) | `\(escapeMarkdown(entity?.qualifiedName ?? "<unknown>"))` | `\(escapeMarkdown(entity?.path ?? file.path))` | \(confidenceLabel(change.confidence)) |"
@@ -138,6 +176,13 @@ public struct FlowDeltaReportExporter: Sendable {
         }).sorted()
         if !bases.isEmpty {
             lines.append("Affected nodes in this report use the **\(bases.joined(separator: " + ")) context** basis.")
+            lines.append("")
+        }
+        if let walkthrough = context.walkthrough {
+            lines.append(contentsOf: ["## Walkthrough", ""])
+            lines.append(contentsOf: walkthrough.enumerated().map { index, step in
+                "\(index + 1). **`\(escapeMarkdown(step.functionName))`** — \(step.narration)"
+            })
             lines.append("")
         }
         return lines.joined(separator: "\n")

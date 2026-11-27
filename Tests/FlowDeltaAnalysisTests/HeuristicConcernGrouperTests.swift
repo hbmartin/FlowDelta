@@ -111,6 +111,29 @@ final class HeuristicConcernGrouperTests: XCTestCase {
         XCTAssertFalse(report.isTangled)
     }
 
+    func testReferencesAreBareIdentifiersOnly() {
+        let tokens = [
+            "let",
+            "x",
+            ":",
+            "Price",
+            "=",
+            "make",
+            "(",
+            "package",
+            ":",
+            "1",
+            ",",
+            "other",
+            ".",
+            "total",
+            ")",
+            "_y2"
+        ]
+        XCTAssertEqual(HeuristicConcernGrouper.references(in: tokens), ["let", "Price", "make", "other", "_y2"])
+        XCTAssertEqual(HeuristicConcernGrouper.references(in: ["f", "(", "key", "=", "1", ")", "\"text\""]), ["f"])
+    }
+
     func testUnionFindJoinsOnceAndTracksSizes() {
         var sets = UnionFind(count: 4)
         XCTAssertTrue(sets.union(0, 1))

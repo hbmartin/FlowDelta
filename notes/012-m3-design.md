@@ -49,7 +49,7 @@ Hosts choose the default; GitX uses `hideCosmetic`.
 Behavioral entities are merged by union-find. The reasons for a merge, in order:
 
 1. call-graph edges between changed entities;
-2. a changed entity's new body naming another changed entity, where a type's body counts only its own tokens;
+2. a changed entity's new body naming another changed entity as a bare identifier (not a member after `.`, which calls cover, and not an argument label, keyword argument or assignment target before `:` or `=`), where a type's body counts only its own tokens;
 3. for leftover singletons, the same file and the same containing type, where a type is in its own type.
 
 Refactoring entities and cosmetic entities each form one group per revision, after the behavioral groups.
@@ -96,7 +96,7 @@ Every language then has data flow, so `SourceLanguage.supportsDataFlow` (added u
 - The default options reproduce today's table, Markdown and Mermaid output exactly.
 - `noise` applies the filter before counting and drawing nodes.
 - `groupByConcern` orders the table and Markdown output by concern group and adds the tangled-commit note.
-- `includeWalkthrough` appends the steps in Markdown and JSON.
+- `includeWalkthrough` appends the steps in table, Markdown and JSON output; JSON becomes a `FlowDeltaExportDocument` of the report and its walkthrough.
 
 The CLI gains `--noise show-all|hide-formatting|hide-cosmetic`, `--group-by-concern` and `--walkthrough`.
 

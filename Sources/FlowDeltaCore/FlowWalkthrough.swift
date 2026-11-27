@@ -1,5 +1,5 @@
 /// One stop in a walkthrough: a connected group of changed nodes in one function.
-public struct FlowWalkthroughStep: Hashable, Sendable, Identifiable {
+public struct FlowWalkthroughStep: Codable, Hashable, Sendable, Identifiable {
     /// The function delta's ID and the step's first node, so a step keeps its identity across reloads.
     public let id: String
     public let functionID: StableID

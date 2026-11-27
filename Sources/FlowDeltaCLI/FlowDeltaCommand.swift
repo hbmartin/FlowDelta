@@ -10,7 +10,7 @@ struct FlowDeltaCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "flowdelta",
         abstract: "Explain how two Git revisions change source control and data flow.",
-        version: "0.2.2"
+        version: "0.3.0"
     )
 
     @Option(name: [.customShort("C"), .long], help: "Path to the Git repository.")
@@ -21,6 +21,15 @@ struct FlowDeltaCommand: ParsableCommand {
 
     @Option(name: [.customShort("o"), .long], help: "Write output to this path instead of standard output.")
     var output: String?
+
+    @Option(name: .long, help: "Noise to hide: show-all, hide-formatting, or hide-cosmetic. Rewrites are never hidden.")
+    var noise: FlowNoisePolicy = .showAll
+
+    @Flag(name: .long, help: "Group the triage by concern and note a tangled revision.")
+    var groupByConcern = false
+
+    @Flag(name: .long, help: "Append walkthrough steps (table, json, and markdown).")
+    var walkthrough = false
 
     @Argument(help: "Base commit-ish.")
     var base: String
@@ -46,7 +55,7 @@ struct FlowDeltaCommand: ParsableCommand {
             }
         }
         let report = try result.wait()
-        let rendered = try FlowDeltaReportExporter().render(report, format: format.exportFormat)
+        let rendered = try FlowDeltaReportExporter().render(report, format: format.exportFormat, options: exportOptions)
         let data = Data(rendered.utf8)
         if let output {
             let outputURL = URL(fileURLWithPath: output).standardizedFileURL
@@ -56,6 +65,14 @@ struct FlowDeltaCommand: ParsableCommand {
         }
     }
 }
+
+extension FlowDeltaCommand {
+    var exportOptions: FlowDeltaExportOptions {
+        FlowDeltaExportOptions(noise: noise, groupByConcern: groupByConcern, includeWalkthrough: walkthrough)
+    }
+}
+
+extension FlowNoisePolicy: ExpressibleByArgument {}
 
 private final class BlockingResult<Value>: @unchecked Sendable {
     private let condition = NSCondition()

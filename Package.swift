@@ -130,6 +130,7 @@ let package = Package(
             name: "FlowDeltaCLITests",
             dependencies: [
                 "FlowDeltaCLI",
+                "FlowDeltaExport",
                 .product(name: "ArgumentParser", package: "swift-argument-parser")
             ]
         )

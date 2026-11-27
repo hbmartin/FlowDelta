@@ -1,5 +1,6 @@
 import ArgumentParser
 @testable import FlowDeltaCLI
+import FlowDeltaExport
 import XCTest
 
 final class FlowDeltaCommandTests: XCTestCase {
@@ -27,5 +28,22 @@ final class FlowDeltaCommandTests: XCTestCase {
 
     func testRejectsUnknownFormat() {
         XCTAssertThrowsError(try FlowDeltaCommand.parse(["--format", "xml", "base"]))
+    }
+
+    func testParsesNoiseGroupingAndWalkthroughIntoExportOptions() throws {
+        let command = try FlowDeltaCommand.parse([
+            "--noise",
+            "hide-cosmetic",
+            "--group-by-concern",
+            "--walkthrough",
+            "base"
+        ])
+        XCTAssertEqual(
+            command.exportOptions,
+            FlowDeltaExportOptions(noise: .hideCosmetic, groupByConcern: true, includeWalkthrough: true)
+        )
+        XCTAssertEqual(try FlowDeltaCommand.parse(["base"]).exportOptions, .default)
+        XCTAssertThrowsError(try FlowDeltaCommand.parse(["--noise", "hide-everything", "base"]))
+        XCTAssertEqual(FlowDeltaCommand.configuration.version, "0.3.0")
     }
 }

@@ -15,6 +15,14 @@ swift run FlowDeltaReference
 
 The default CLI output is an entity triage table followed by per-function flow summaries. `--format json`, `mermaid`, and `markdown` produce portable evidence artifacts.
 
+Three options shape a review; without them the table, Mermaid, and Markdown output is unchanged:
+
+- `--noise hide-formatting|hide-cosmetic` shows formatting-only (and, for `hide-cosmetic`, optional-syntax) node changes as retained and says how many it hid. Equivalent rewrites such as `a += b` for `a = a + b` are never hidden.
+- `--group-by-concern` orders the triage by concern group (behavioral groups joined by calls, name references, and shared types; then renames, moves, and rewrites; then cosmetic changes) and notes a tangled revision that mixes behavioral concerns.
+- `--walkthrough` appends ordered review steps with narration to table, Markdown, and JSON output. JSON then becomes `{"report": …, "walkthrough": […]}`.
+
+Libraries get the same choices through `FlowDeltaExportOptions`, and the pure `FlowNoiseFilter`, `FlowWalkthrough`, and `RevisionFlowDeltaReport.concerns` APIs.
+
 ## Libraries
 
 - `FlowDeltaCore`: source, entity, syntax, CFG, delta, diagnostic, and report values.
