@@ -142,6 +142,90 @@ final class SyntaxDefUseTests: XCTestCase {
         XCTAssertFalse(edges.contains { $0.symbol == "X" }, "A struct field label is not a variable")
     }
 
+    func testGoDeclarationsInAHeaderOrBlockEndWithIt() throws {
+        let edges = try dataEdges(path: "shadow.go", language: .go, text: """
+        func pick(x int, ok bool) int {
+            if x := 1; x > 0 {
+                first(x)
+            }
+            if ok {
+                x := 2
+                second(x)
+            }
+            for i := 0; i < 3; i++ {
+                x := i
+                third(x)
+            }
+            switch x := 4; x {
+            case 4:
+                fourth(x)
+            }
+            if ok {
+                x = 5
+            }
+            return x
+        }
+        """)
+        for (symbol, definition, use) in [
+            ("x", "if x > 0", "first(x)"),
+            ("x", "x := 2", "second(x)"),
+            ("x", "x := i", "third(x)"),
+            ("x", "switch x", "fourth(x)"),
+            ("x", "Entry", "return x"),
+            ("x", "x = 5", "return x")
+        ] {
+            XCTAssertTrue(edges.contains { $0.matches(symbol, definition, use) }, "\(symbol): \(definition) → \(use)")
+        }
+        for definition in ["if x > 0", "x := 2", "x := i", "switch x", "loop"] {
+            XCTAssertFalse(
+                edges.contains { $0.matches("x", definition, "return x") },
+                "The x declared at \(definition) ends with its statement or block"
+            )
+        }
+        XCTAssertFalse(edges.contains { $0.matches("i", "loop", "return x") })
+    }
+
+    func testPythonNestedDefinitionsReadTheirDecoratorsDefaultsAndBasesWhenDefined() throws {
+        let edges = try dataEdges(path: "nested.py", language: .python, function: "outer", text: """
+        def outer(seed, base, deco):
+            @deco
+            def inner(x=seed, *, y: int = 2):
+                return x + y + hidden
+            class Child(base, metaclass=deco):
+                pass
+            return inner, Child
+        """)
+        for (symbol, definition, use) in [
+            ("deco", "Entry", "@deco"),
+            ("seed", "Entry", "@deco"),
+            ("base", "Entry", "class Child"),
+            ("deco", "Entry", "class Child"),
+            ("inner", "@deco", "return inner"),
+            ("Child", "class Child", "return inner")
+        ] {
+            XCTAssertTrue(edges.contains { $0.matches(symbol, definition, use) }, "\(symbol): \(definition) → \(use)")
+        }
+        let symbols = Set(edges.map(\.symbol))
+        XCTAssertTrue(symbols.isDisjoint(with: ["x", "y", "int", "hidden", "metaclass"]), "\(symbols)")
+    }
+
+    func testGoArrayAndSliceKeysAreEvaluatedIndexes() throws {
+        let edges = try dataEdges(path: "keys.go", language: .go, text: """
+        func table() int {
+            const k = 2
+            a := []int{k: 1}
+            b := [4]int{k: 1}
+            c := [...]int{k: 1}
+            p := Point{k: 1}
+            return len(a) + len(b) + len(c) + p.k
+        }
+        """)
+        for use in ["a := []int", "b := [4]int", "c := [...]int"] {
+            XCTAssertTrue(edges.contains { $0.matches("k", "const k = 2", use) }, use)
+        }
+        XCTAssertFalse(edges.contains { $0.matches("k", "const k = 2", "p := Point") }, "A struct field label")
+    }
+
     func testGoParameterNamesFallBackToTheDeclarationWithoutSyntaxMetadata() throws {
         func edges(_ text: String) throws -> [DataFlowEdge] {
             let snapshot = SourceSnapshot(path: "a.go", revision: RevisionIdentity("r"), language: .go, text: text)

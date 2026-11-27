@@ -24,8 +24,13 @@ public struct LanguageBindingRules: Hashable, Sendable {
     public let scopedKinds: Set<String>
     /// The fields of a scoped expression that bind its names, such as a lambda's `parameters`.
     public let scopedBindingFields: Set<String>
-    /// Nested declarations that bind their `name` and are otherwise skipped.
+    /// Nested declarations that bind their `name`. Their bodies are skipped, because they run later.
     public let nestedDeclarationKinds: Set<String>
+    /// Kinds inside a nested declaration that run when it is declared, such as Python's decorators.
+    public let definitionTimeKinds: Set<String>
+    /// Fields inside a nested declaration that run when it is declared, such as a parameter's default `value` and
+    /// a class's `superclasses`.
+    public let definitionTimeFields: Set<String>
     /// Member accesses whose named field is a member name, not a variable, such as `attribute` → `attribute`.
     public let memberFields: [String: String]
     /// Kinds whose leading key is a name, not a variable, such as `f(key=value)` and `T{Field: value}`.
@@ -37,10 +42,16 @@ public struct LanguageBindingRules: Hashable, Sendable {
     /// Comprehension clauses that bind loop targets. The first clause's `right` runs in the enclosing scope, and an
     /// assignment expression anywhere in the comprehension binds there too.
     public let comprehensionClauseKinds: Set<String>
-    /// Literal kinds whose keys are evaluated when their `type` field has one of these kinds, such as a Go map.
+    /// Literal kinds whose keys are evaluated when their `type` field has one of these kinds, such as a Go map's
+    /// keys and an array's or slice's index keys.
     public let evaluatedKeyLiterals: [String: Set<String>]
     /// Return statements that read the callable's named results when they return no expression.
     public let bareReturnKinds: Set<String>
+    /// Assignment operators that declare their targets in the innermost scope, such as Go's `:=`.
+    public let declaringOperators: Set<String>
+    /// Kinds that end the names declared inside them, such as Go blocks, case clauses, and the `if`, `for` and
+    /// `switch` statements whose headers declare names. Empty when names live for the whole function, as in Python.
+    public let blockScopeKinds: Set<String>
 
     /// The names one parameter declares: a bare identifier, its `name` fields, or else the first identifier
     /// outside its type and default, as in `*args`, `**kwargs` and `name: type`.
@@ -96,13 +107,17 @@ public extension LanguageProfile {
                 ],
                 scopedBindingFields: ["parameters"],
                 nestedDeclarationKinds: ["function_definition", "class_definition", "decorated_definition"],
+                definitionTimeKinds: ["decorator"],
+                definitionTimeFields: ["value", "superclasses"],
                 memberFields: ["attribute": "attribute"],
                 keyedKinds: ["keyword_argument"],
                 typeFields: ["type", "return_type"],
                 valueFields: ["assignment": "right"],
                 comprehensionClauseKinds: ["for_in_clause"],
                 evaluatedKeyLiterals: [:],
-                bareReturnKinds: []
+                bareReturnKinds: [],
+                declaringOperators: [],
+                blockScopeKinds: []
             )
         case .go:
             LanguageBindingRules(
@@ -121,13 +136,22 @@ public extension LanguageProfile {
                 scopedKinds: ["func_literal"],
                 scopedBindingFields: ["parameters", "result"],
                 nestedDeclarationKinds: [],
+                definitionTimeKinds: [],
+                definitionTimeFields: [],
                 memberFields: [:],
                 keyedKinds: ["keyed_element"],
                 typeFields: ["type"],
                 valueFields: [:],
                 comprehensionClauseKinds: [],
-                evaluatedKeyLiterals: ["composite_literal": ["map_type"]],
-                bareReturnKinds: ["return_statement"]
+                evaluatedKeyLiterals: [
+                    "composite_literal": ["map_type", "slice_type", "array_type", "implicit_length_array_type"]
+                ],
+                bareReturnKinds: ["return_statement"],
+                declaringOperators: [":="],
+                blockScopeKinds: [
+                    "block", "if_statement", "for_statement", "expression_switch_statement", "type_switch_statement",
+                    "select_statement", "expression_case", "default_case", "type_case", "communication_case"
+                ]
             )
         }
     }

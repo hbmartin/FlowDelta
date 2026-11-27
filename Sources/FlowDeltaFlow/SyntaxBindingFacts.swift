@@ -80,8 +80,39 @@ struct SyntaxBindingFacts {
         let ignored = rules.ignoredNames
         return LexicalFacts(
             definitions: walker.definitions.subtracting(ignored).subtracting(nonLocalNames),
-            uses: walker.uses.subtracting(ignored)
+            uses: walker.uses.subtracting(ignored),
+            declarations: walker.declarations.subtracting(ignored).subtracting(nonLocalNames)
         )
+    }
+
+    /// Where each node's names are declared and which scopes it is inside, for languages whose declarations end
+    /// with their block. Without block scopes every name belongs to the function.
+    func scopes(for nodes: [FlowNode], function: StableID) -> BindingScopes {
+        guard !rules.blockScopeKinds.isEmpty else { return BindingScopes(function: function) }
+        var enclosing: [StableID: Set<StableID>] = [:]
+        var declaring: [StableID: StableID] = [:]
+        var depth: [StableID: Int] = [:]
+        for node in nodes where !node.isSynthetic {
+            guard let root = node.syntaxIDs.lazy.compactMap({ syntaxByID[$0] }).first else { continue }
+            // The node after a loop runs none of the loop, so it is outside the loop's scope.
+            let isAfterLoop = node.kind == .basicBlock && profile.loopKinds.contains(root.kind)
+            var chain: [SyntaxNode] = []
+            var current: SyntaxNode? = isAfterLoop ? parentByID[root.id] : root
+            while let syntax = current, syntax.id != function {
+                if rules.blockScopeKinds.contains(syntax.kind) {
+                    chain.append(syntax)
+                }
+                current = parentByID[syntax.id]
+            }
+            enclosing[node.id] = Set(chain.map(\.id))
+            for (index, scope) in chain.enumerated() {
+                depth[scope.id] = chain.count - index
+            }
+            let header = node.kind == .condition ? header(containing: root) : nil
+            declaring[node.id] = header.flatMap { rules.blockScopeKinds.contains($0.kind) ? $0.id : nil }
+                ?? chain.first?.id ?? function
+        }
+        return BindingScopes(function: function, enclosing: enclosing, declaring: declaring, depth: depth)
     }
 
     /// The statement whose header holds `syntax`: a condition, loop or switch, or `syntax` itself.
@@ -110,6 +141,9 @@ struct BindingWalker {
     private(set) var uses: Set<String> = []
     /// Uses that come before any definition of their name in evaluation order, which a closure captures.
     private(set) var freeUses: Set<String> = []
+    /// Definitions that declare a new name in the innermost scope, such as Go's `x := 1` and `var x int`, rather
+    /// than assign an existing one.
+    private(set) var declarations: Set<String> = []
 
     mutating func walk(_ node: SyntaxNode) {
         let kind = node.kind
@@ -143,14 +177,18 @@ struct BindingWalker {
         }
     }
 
-    private mutating func define(_ name: String) {
+    private mutating func define(_ name: String, declaring: Bool = false) {
         definitions.insert(name)
+        if declaring {
+            declarations.insert(name)
+        }
     }
 
     /// Declarations, aliases, member accesses and keyed elements, or else every child.
     private mutating func walkDeclarationOrChildren(_ node: SyntaxNode) {
         let kind = node.kind
         if rules.nestedDeclarationKinds.contains(kind) {
+            walkDefinitionTime(node)
             let declaration = node.firstChild(fieldName: "definition") ?? node
             if let name = declaration.firstChild(fieldName: "name"), rules.identifierKinds.contains(name.kind) {
                 define(name.text)
@@ -158,7 +196,7 @@ struct BindingWalker {
         } else if rules.declarationKinds.contains(kind) {
             for child in node.children where !isType(child) {
                 if child.fieldName == "name", rules.identifierKinds.contains(child.kind) {
-                    define(child.text)
+                    define(child.text, declaring: true)
                 } else {
                     walk(child)
                 }
@@ -173,6 +211,20 @@ struct BindingWalker {
             walkKeyed(node)
         } else {
             walkChildren(of: node)
+        }
+    }
+
+    /// Reads what a nested declaration evaluates when it is declared: its decorators, default values and base
+    /// classes. Its body, names and annotations are not read.
+    private mutating func walkDefinitionTime(_ node: SyntaxNode) {
+        for child in node.children where child.fieldName != "body" && !isType(child) {
+            if rules.definitionTimeKinds.contains(child.kind) || rules.definitionTimeFields
+                .contains(child.fieldName ?? "")
+            {
+                walk(child)
+            } else if !rules.identifierKinds.contains(child.kind) {
+                walkDefinitionTime(child)
+            }
         }
     }
 
@@ -219,20 +271,20 @@ struct BindingWalker {
             walk(child)
         }
         if let target, !isType(target), !isSkipped(target) {
-            bind(target, alsoUse: compound)
+            bind(target, alsoUse: compound, declaring: operatorText.map(rules.declaringOperators.contains) ?? false)
         }
     }
 
     /// Binds the identifiers a target names; member and index targets only read their operands.
-    private mutating func bind(_ target: SyntaxNode, alsoUse: Bool) {
+    private mutating func bind(_ target: SyntaxNode, alsoUse: Bool, declaring: Bool = false) {
         if rules.identifierKinds.contains(target.kind) {
             if alsoUse {
                 use(target.text)
             }
-            define(target.text)
+            define(target.text, declaring: declaring)
         } else if rules.targetGroupKinds.contains(target.kind) || rules.aliasKinds.contains(target.kind) {
             for child in target.children where child.isNamed {
-                bind(child, alsoUse: alsoUse)
+                bind(child, alsoUse: alsoUse, declaring: declaring)
             }
         } else {
             walk(target)
@@ -258,7 +310,8 @@ struct BindingWalker {
         return named.count == 1 && isBareIdentifier(named[0])
     }
 
-    /// A map literal's keys are values it reads, unlike a struct literal's field labels.
+    /// A map literal's keys and an array or slice literal's index keys are values it reads, unlike a struct
+    /// literal's field labels.
     private mutating func walkEvaluatedKeys(_ node: SyntaxNode) {
         for child in node.children where !isType(child) {
             guard child.fieldName == "body" else {
