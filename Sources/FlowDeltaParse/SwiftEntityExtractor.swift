@@ -114,7 +114,13 @@ public struct SwiftEntityExtractor: Sendable {
             qualifiedName: qualifiedName,
             path: path,
             range: node.range,
-            body: body
+            body: body,
+            declarationHeader: DeclarationHeader.tokens(
+                of: node,
+                name: node.firstChild(fieldName: "name"),
+                body: body,
+                rules: LanguageProfile.profile(for: .swift).noise
+            )
         )
         return (entity, childContainers)
     }

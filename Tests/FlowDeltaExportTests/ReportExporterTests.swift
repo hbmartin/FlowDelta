@@ -61,6 +61,26 @@ final class ReportExporterTests: XCTestCase {
         XCTAssertTrue(value.contains("1 affected"))
     }
 
+    /// Pins the default table, Mermaid and Markdown output, so export options cannot change it.
+    func testDefaultOutputMatchesTheCheckedInGoldenFiles() throws {
+        for format in [FlowDeltaExportFormat.table, .mermaid, .markdown] {
+            let url = try XCTUnwrap(
+                Bundle.module.url(
+                    forResource: "default-\(format.rawValue)",
+                    withExtension: "txt",
+                    subdirectory: "Fixtures"
+                ),
+                format.rawValue
+            )
+            let expected = try String(contentsOf: url, encoding: .utf8)
+            XCTAssertEqual(
+                try FlowDeltaReportExporter().render(makeReport(), format: format),
+                expected,
+                format.rawValue
+            )
+        }
+    }
+
     private func makeReport() -> RevisionFlowDeltaReport {
         let range = SourceRange(
             start: SourceLocation(utf8Offset: 0, utf16Offset: 0, line: 0, utf16Column: 0),

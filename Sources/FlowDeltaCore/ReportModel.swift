@@ -34,19 +34,30 @@ public struct RevisionFlowDeltaReport: Codable, Hashable, Sendable {
     public let files: [FileFlowDelta]
     public let callGraph: CallGraph?
     public let diagnostics: [AnalysisDiagnostic]
+    /// The revision's changes grouped by concern, behavioral groups first. Absent in 0.2 reports.
+    public let concerns: [FlowConcern]?
 
     public init(
         base: RevisionIdentity,
         target: RevisionIdentity,
         files: [FileFlowDelta],
         callGraph: CallGraph? = nil,
-        diagnostics: [AnalysisDiagnostic] = []
+        diagnostics: [AnalysisDiagnostic] = [],
+        concerns: [FlowConcern]? = nil
     ) {
         self.base = base
         self.target = target
         self.files = files.sorted { $0.path < $1.path }
         self.callGraph = callGraph
         self.diagnostics = diagnostics
+        self.concerns = concerns
+    }
+
+    /// The same report with `concerns`.
+    public func with(concerns: [FlowConcern]?) -> RevisionFlowDeltaReport {
+        RevisionFlowDeltaReport(
+            base: base, target: target, files: files, callGraph: callGraph, diagnostics: diagnostics, concerns: concerns
+        )
     }
 
     public var entityChanges: [EntityChange] {
@@ -71,7 +82,8 @@ public struct RevisionFlowDeltaReport: Codable, Hashable, Sendable {
             target: target,
             files: files,
             callGraph: enricher.enrich(callGraph, sourceFiles: sourceFiles),
-            diagnostics: diagnostics
+            diagnostics: diagnostics,
+            concerns: concerns
         )
     }
 }

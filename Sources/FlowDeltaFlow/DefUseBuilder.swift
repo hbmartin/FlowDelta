@@ -1,4 +1,5 @@
 import FlowDeltaCore
+import FlowDeltaParse
 import Foundation
 import OSLog
 
@@ -12,21 +13,31 @@ public struct DefUseBuilder: Sendable {
         graph: ControlFlowGraph,
         language: SourceLanguage
     ) -> DataFlowGraph? {
-        guard language == .swift || language == .typescript || language == .javascript else { return nil }
         let syntaxByID = Dictionary(
             entity.body.descendants.map { ($0.id, $0) },
             uniquingKeysWith: { first, _ in first }
         )
         let orderedNodes = graph.nodes.sorted(by: { ($0.sourceOrder, $0.id) < ($1.sourceOrder, $1.id) })
+        let profile = LanguageProfile.profile(for: language)
+        let syntaxFacts = profile.binding.map { SyntaxBindingFacts(entity: entity, profile: profile, rules: $0) }
         let factsByNode = Dictionary(uniqueKeysWithValues: orderedNodes.map { node in
+            if node.isSynthetic {
+                return (node.id, LexicalFacts.empty)
+            }
+            if let syntaxFacts {
+                return (node.id, syntaxFacts.facts(for: node))
+            }
             let source = sourceText(for: node, syntaxByID: syntaxByID)
-            return (node.id, node.isSynthetic ? LexicalFacts.empty : lexicalFacts(in: source, language: language))
+            return (node.id, lexicalFacts(in: source, language: language))
         })
         let predecessors = Dictionary(grouping: graph.edges, by: \.target).mapValues { edges in
             Set(edges.map(\.source))
         }
-        let parameterState = Dictionary(uniqueKeysWithValues: parameterNames(in: entity, language: language).map {
-            ($0, Set([graph.entryID]))
+        let parameters = entity.parameterNames.map(Set.init) ?? parameterNames(in: entity, language: language)
+        let scopes = syntaxFacts?.scopes(for: orderedNodes, function: entity.body.id)
+            ?? BindingScopes(function: entity.body.id)
+        let parameterState = Dictionary(uniqueKeysWithValues: parameters.map {
+            (BindingKey(name: $0, scope: scopes.function), Set([graph.entryID]))
         })
         var incomingByNode: [StableID: DefinitionState] = [:]
         var outgoingByNode: [StableID: DefinitionState] = [:]
@@ -41,10 +52,16 @@ public struct DefUseBuilder: Sendable {
                 if node.id == graph.entryID {
                     incoming.merge(parameterState) { $0.union($1) }
                 }
+                // A name declared in a block ends with it, and the binding it shadowed is visible again.
+                incoming = incoming.filter { key, _ in scopes.isVisible(key.scope, at: node.id) }
                 incomingByNode[node.id] = incoming
                 var outgoing = incoming
-                for symbol in factsByNode[node.id, default: .empty].definitions {
-                    outgoing[symbol] = [node.id]
+                let facts = factsByNode[node.id, default: .empty]
+                for symbol in facts.definitions {
+                    let key = facts.declarations.contains(symbol)
+                        ? BindingKey(name: symbol, scope: scopes.declaringScope(of: node.id))
+                        : scopes.innermost(symbol, in: incoming) ?? BindingKey(name: symbol, scope: scopes.function)
+                    outgoing[key] = [node.id]
                 }
                 if outgoingByNode[node.id] != outgoing {
                     outgoingByNode[node.id] = outgoing
@@ -56,8 +73,10 @@ public struct DefUseBuilder: Sendable {
         var edges: Set<DataFlowEdge> = []
         for node in orderedNodes where !node.isSynthetic {
             let facts = factsByNode[node.id, default: .empty]
+            let incoming = incomingByNode[node.id, default: [:]]
             for symbol in facts.uses.sorted() {
-                for definition in incomingByNode[node.id]?[symbol] ?? [] where definition != node.id {
+                guard let key = scopes.innermost(symbol, in: incoming) else { continue }
+                for definition in incoming[key, default: []] where definition != node.id {
                     edges.insert(DataFlowEdge(symbol: symbol, definition: definition, use: node.id))
                 }
             }
@@ -124,12 +143,15 @@ public struct DefUseBuilder: Sendable {
         return result
     }
 
-    private func parameterNames(in entity: SourceEntity, language _: SourceLanguage) -> Set<String> {
+    private func parameterNames(in entity: SourceEntity, language: SourceLanguage) -> Set<String> {
         guard let opening = entity.qualifiedName.firstIndex(of: "("),
               let closing = entity.qualifiedName.lastIndex(of: ")"),
               opening < closing
         else { return [] }
         let clause = entity.qualifiedName[entity.qualifiedName.index(after: opening) ..< closing]
+        if language == .go {
+            return goParameterNames(in: splitParameters(String(clause)))
+        }
         return Set(splitParameters(String(clause)).compactMap { parameter in
             var declaration = parameter.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !declaration.isEmpty, !declaration.hasPrefix("{"), !declaration.hasPrefix("[") else {
@@ -151,6 +173,20 @@ public struct DefUseBuilder: Sendable {
                   candidate.range(of: #"^[A-Za-z_$][A-Za-z0-9_$]*$"#, options: .regularExpression) != nil
             else { return nil }
             return candidate
+        })
+    }
+
+    /// Go names come before their types, and either every parameter is named or none is: `a, b int` names `a` and
+    /// `b`, while `int, string` names nothing.
+    private func goParameterNames(in parameters: [String]) -> Set<String> {
+        let pieces = parameters.map { $0.split(whereSeparator: \.isWhitespace).map(String.init) }.filter { !$0.isEmpty }
+        guard pieces.contains(where: { $0.count > 1 }) else { return [] }
+        return Set(pieces.compactMap { piece in
+            let name = piece[0]
+            guard name != "_", name.range(of: #"^[A-Za-z_][A-Za-z0-9_]*$"#, options: .regularExpression) != nil else {
+                return nil
+            }
+            return name
         })
     }
 
@@ -245,11 +281,47 @@ public struct DefUseBuilder: Sendable {
     }
 }
 
-private struct LexicalFacts {
+struct LexicalFacts {
     let definitions: Set<String>
     let uses: Set<String>
+    /// The definitions that declare a new name in the node's innermost scope instead of assigning one.
+    var declarations: Set<String> = []
 
     static let empty = LexicalFacts(definitions: [], uses: [])
 }
 
-private typealias DefinitionState = [String: Set<StableID>]
+/// One binding of a name: the name and the scope that declares it.
+struct BindingKey: Hashable {
+    let name: String
+    let scope: StableID
+}
+
+typealias DefinitionState = [BindingKey: Set<StableID>]
+
+/// Which scopes each node is inside and declares into. A scope outside a node's chain has ended there.
+struct BindingScopes {
+    /// The function's own scope, which holds parameters and every name in languages without block scopes.
+    let function: StableID
+    /// Each positioned node's enclosing block scopes, not counting the function's.
+    var enclosing: [StableID: Set<StableID>] = [:]
+    /// The scope each node declares its names into.
+    var declaring: [StableID: StableID] = [:]
+    /// How deeply each block scope is nested, counting from the function's scope at zero.
+    var depth: [StableID: Int] = [:]
+
+    /// Whether a binding declared in `scope` can reach `node`. A node without syntax keeps every binding.
+    func isVisible(_ scope: StableID, at node: StableID) -> Bool {
+        scope == function || enclosing[node].map { $0.contains(scope) } ?? true
+    }
+
+    func declaringScope(of node: StableID) -> StableID {
+        declaring[node] ?? function
+    }
+
+    /// The innermost binding of `name` that reaches a node, which shadows the others.
+    func innermost(_ name: String, in state: DefinitionState) -> BindingKey? {
+        state.keys
+            .filter { $0.name == name }
+            .max { depth[$0.scope, default: 0] < depth[$1.scope, default: 0] }
+    }
+}

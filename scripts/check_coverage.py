@@ -38,7 +38,7 @@ def source_files(report: dict) -> dict[str, float]:
             path = source.get("path", "")
             if "/Sources/FlowDelta" not in path:
                 continue
-            if "/Sources/FlowDeltaCLI/" in path or "/Sources/FlowDeltaReference/" in path:
+            if any(f"/Sources/{target}/" in path for target in ("FlowDeltaCLI", "FlowDeltaCommandLine", "FlowDeltaReference")):
                 continue
             result[path] = float(source.get("lineCoverage", 0)) * 100
     return result

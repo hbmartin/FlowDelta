@@ -20,6 +20,16 @@ public struct SourceEntity: Codable, Hashable, Sendable, Identifiable {
     public let path: String
     public let range: SourceRange
     public let body: SyntaxNode
+    /// The callable's receiver, parameter and named-result names, read from its syntax. Nil when the extractor
+    /// does not read them for the language, and in 0.2 reports; data flow then parses `qualifiedName`.
+    public let parameterNames: [String]?
+    /// The callable's named results, which a bare `return` reads, such as Go's `(n int, err error)`. Nil when the
+    /// callable has none or the extractor does not read them for the language.
+    public let resultNames: [String]?
+    /// The declaration's tokens outside its name, body and comments, such as `async def ( x = 1 ) :`: keywords,
+    /// modifiers, parameters, results and inheritance. A rename keeps them. Empty when the declaration is its own
+    /// body, and nil in reports made before 0.3.2.
+    public let declarationHeader: [String]?
 
     public init(
         id: StableID,
@@ -28,7 +38,10 @@ public struct SourceEntity: Codable, Hashable, Sendable, Identifiable {
         qualifiedName: String,
         path: String,
         range: SourceRange,
-        body: SyntaxNode
+        body: SyntaxNode,
+        parameterNames: [String]? = nil,
+        resultNames: [String]? = nil,
+        declarationHeader: [String]? = nil
     ) {
         self.id = id
         self.kind = kind
@@ -37,6 +50,15 @@ public struct SourceEntity: Codable, Hashable, Sendable, Identifiable {
         self.path = path
         self.range = range
         self.body = body
+        self.parameterNames = parameterNames
+        self.resultNames = resultNames
+        self.declarationHeader = declarationHeader
+    }
+
+    /// Whether `other` declares the same header, or either header is unknown.
+    public func hasSameDeclarationHeader(as other: SourceEntity) -> Bool {
+        guard let declarationHeader, let otherHeader = other.declarationHeader else { return true }
+        return declarationHeader == otherHeader
     }
 }
 

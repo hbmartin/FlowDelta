@@ -3,9 +3,25 @@ import FlowDeltaCore
 import FlowDeltaLayout
 import QuartzCore
 
+/// A key the graph forwards to its delegate once it has handled navigation itself.
+@MainActor
+@objc(FDFlowGraphKeyCommand)
+public enum FlowGraphKeyCommand: Int {
+    /// Return or Enter.
+    case activate
+    /// Space.
+    case toggleSlice
+    /// Escape.
+    case cancel
+}
+
 @MainActor
 @objc public protocol FlowGraphViewDelegate: AnyObject {
     func flowGraphView(_ view: FlowGraphView, didSelectNodeWithStableID stableID: String)
+    /// The context menu for a node. The node is selected before this is asked.
+    @objc optional func flowGraphView(_ view: FlowGraphView, menuForNodeWithStableID stableID: String) -> NSMenu?
+    /// Handles Return, Space or Escape in the focused graph; false lets the key continue up the responder chain.
+    @objc optional func flowGraphView(_ view: FlowGraphView, perform command: FlowGraphKeyCommand) -> Bool
 }
 
 @MainActor
@@ -60,7 +76,10 @@ public final class FlowGraphView: NSView {
         self.edgeStates = edgeStates
         let previousLayout = currentLayout
         let previousEdges = edgeContainer
-        let nextEdges = makeEdgeContainer(graph: graph, layout: layout)
+        var nextEdges = CALayer()
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            nextEdges = makeEdgeContainer(graph: graph, layout: layout)
+        }
         canvasLayer.insertSublayer(nextEdges, at: 0)
         edgeContainer = nextEdges
 
@@ -132,9 +151,23 @@ public final class FlowGraphView: NSView {
         emphasizedNodes.map { Set($0.map(\.rawValue)) }
     }
 
+    /// The context menu the delegate supplies for a node, or nil when it supplies none.
+    public func menuForNode(withStableID stableID: String) -> NSMenu? {
+        delegate?.flowGraphView?(self, menuForNodeWithStableID: stableID)
+    }
+
     public func selectNode(withStableID stableID: String?) {
         selectedNode = stableID.map(StableID.init(rawValue:))
         updateNodeEmphasis()
+        noteFocusRingMaskChanged()
+    }
+
+    /// Selects a node as a click or a key would, and tells the delegate.
+    private func choose(_ id: StableID) {
+        selectedNode = id
+        updateNodeEmphasis()
+        noteFocusRingMaskChanged()
+        delegate?.flowGraphView(self, didSelectNodeWithStableID: id.rawValue)
     }
 
     public func emphasizeNodes(withStableIDs stableIDs: Set<String>?) {
@@ -145,17 +178,30 @@ public final class FlowGraphView: NSView {
     private func configureLayerTree() {
         wantsLayer = true
         layer = canvasLayer
-        canvasLayer.backgroundColor = NSColor.windowBackgroundColor.cgColor
+        updateCanvasColor()
         canvasLayer.addSublayer(edgeContainer)
+    }
+
+    override public func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        updateCanvasColor()
+        updateNodeEmphasis()
+    }
+
+    /// Layer colors are resolved once, so they are resolved for this view's appearance rather than the app's.
+    private func updateCanvasColor() {
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            canvasLayer.backgroundColor = NSColor.windowBackgroundColor.cgColor
+        }
     }
 
     private func makeNodeView(_ node: FlowNode) -> FlowNodeView {
         let nodeView = FlowNodeView(stableID: node.id)
         nodeView.onSelect = { [weak self] id in
-            guard let self else { return }
-            selectedNode = id
-            updateNodeEmphasis()
-            delegate?.flowGraphView(self, didSelectNodeWithStableID: id.rawValue)
+            self?.choose(id)
+        }
+        nodeView.menuProvider = { [weak self] id in
+            self?.menuForNode(withStableID: id.rawValue)
         }
         update(nodeView, for: node, state: nodeStates[node.id])
         return nodeView
@@ -282,14 +328,16 @@ public final class FlowGraphView: NSView {
     private func updateNodeEmphasis() {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        for (id, nodeView) in nodeViews {
-            let layer = nodeView.shapeLayer
-            let isSelected = id == selectedNode
-            layer.lineWidth = isSelected ? 3 : 1
-            layer.strokeColor = isSelected
-                ? NSColor.keyboardFocusIndicatorColor.cgColor
-                : NSColor(calibratedWhite: 0.35, alpha: 0.8).cgColor
-            layer.opacity = emphasizedNodes.map { $0.contains(id) ? 1 : 0.20 } ?? 1
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            for (id, nodeView) in nodeViews {
+                let layer = nodeView.shapeLayer
+                let isSelected = id == selectedNode
+                layer.lineWidth = isSelected ? 3 : 1
+                layer.strokeColor = isSelected
+                    ? NSColor.keyboardFocusIndicatorColor.cgColor
+                    : NSColor(calibratedWhite: 0.35, alpha: 0.8).cgColor
+                layer.opacity = emphasizedNodes.map { $0.contains(id) ? 1 : 0.20 } ?? 1
+            }
         }
         CATransaction.commit()
     }
@@ -301,6 +349,7 @@ private final class FlowNodeView: NSView {
     let shapeLayer = CAShapeLayer()
     let labelLayer = CATextLayer()
     var onSelect: ((StableID) -> Void)?
+    var menuProvider: ((StableID) -> NSMenu?)?
 
     init(stableID: StableID) {
         self.stableID = stableID
@@ -318,7 +367,8 @@ private final class FlowNodeView: NSView {
         labelLayer.contentsScale = NSScreen.main?.backingScaleFactor ?? 2
         labelLayer.font = NSFont.systemFont(ofSize: 12, weight: .medium)
         labelLayer.fontSize = 12
-        labelLayer.foregroundColor = NSColor.labelColor.cgColor
+        // Node fills are fixed light colors, so their labels are a fixed dark color in every appearance.
+        labelLayer.foregroundColor = NSColor.black.withAlphaComponent(0.85).cgColor
         labelLayer.isWrapped = true
         shapeLayer.addSublayer(labelLayer)
         setAccessibilityElement(true)
@@ -354,8 +404,115 @@ private final class FlowNodeView: NSView {
         return true
     }
 
+    /// Like Finder, a secondary click selects the node before showing its menu.
+    override func menu(for event: NSEvent) -> NSMenu? {
+        onSelect?(stableID)
+        return menuProvider?(stableID)
+    }
+
+    override func accessibilityPerformShowMenu() -> Bool {
+        onSelect?(stableID)
+        guard let menu = menuProvider?(stableID) else { return false }
+        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: bounds.maxY), in: self)
+        return true
+    }
+
     func updateTextGeometry() {
         labelLayer.frame = bounds.insetBy(dx: 9, dy: 9)
+    }
+}
+
+// MARK: Keyboard
+
+public extension FlowGraphView {
+    /// Scrolls a node into view, with a margin so its neighbors show too.
+    func scrollNode(withStableIDToVisible stableID: String) {
+        guard let frame = currentLayout?.nodeFrames[StableID(rawValue: stableID)] else { return }
+        scrollToVisible(frame.insetBy(dx: -24, dy: -24))
+    }
+
+    /// Moves the selection as an arrow, Home or End key would, scrolling the new node into view.
+    func moveSelection(_ move: GraphNavigationMove) {
+        guard let currentLayout,
+              let target = GraphNavigator(layout: currentLayout).target(from: selectedNode, move: move)
+        else { return }
+        if target != selectedNode {
+            choose(target)
+        }
+        if let frame = currentLayout.nodeFrames[target] {
+            scrollToVisible(frame.insetBy(dx: -24, dy: -24))
+        }
+        if let nodeView = nodeViews[target] {
+            NSAccessibility.post(element: nodeView, notification: .focusedUIElementChanged)
+        }
+    }
+}
+
+public extension FlowGraphView {
+    override var acceptsFirstResponder: Bool {
+        true
+    }
+
+    override var canBecomeKeyView: Bool {
+        !nodeViews.isEmpty
+    }
+
+    override func becomeFirstResponder() -> Bool {
+        guard super.becomeFirstResponder() else { return false }
+        // A selection whose node left the graph counts as none.
+        if selectedNode.flatMap({ currentLayout?.nodeFrames[$0] }) == nil {
+            moveSelection(.first)
+        }
+        noteFocusRingMaskChanged()
+        return true
+    }
+
+    override func resignFirstResponder() -> Bool {
+        noteFocusRingMaskChanged()
+        return super.resignFirstResponder()
+    }
+
+    /// The focus ring surrounds the selected node, like a focused icon in Finder.
+    override var focusRingMaskBounds: NSRect {
+        selectedNode.flatMap { currentLayout?.nodeFrames[$0] } ?? bounds
+    }
+
+    override func drawFocusRingMask() {
+        NSBezierPath(roundedRect: focusRingMaskBounds, xRadius: 9, yRadius: 9).fill()
+    }
+
+    override func keyDown(with event: NSEvent) {
+        if let move = Self.move(for: event) {
+            moveSelection(move)
+        } else if let command = Self.command(for: event), delegate?.flowGraphView?(self, perform: command) == true {
+            return
+        } else {
+            super.keyDown(with: event)
+        }
+    }
+
+    internal static func move(for event: NSEvent) -> GraphNavigationMove? {
+        switch event.specialKey {
+        case .upArrow: .up
+        case .downArrow: .down
+        case .leftArrow: .left
+        case .rightArrow: .right
+        case .home: .first
+        case .end: .last
+        default: nil
+        }
+    }
+
+    internal static func command(for event: NSEvent) -> FlowGraphKeyCommand? {
+        switch event.specialKey {
+        case .carriageReturn, .enter, .newline: return .activate
+        default: break
+        }
+        switch event.charactersIgnoringModifiers {
+        case " ": return .toggleSlice
+        case "\u{1b}": return .cancel
+        default: return nil
+        }
     }
 }
 

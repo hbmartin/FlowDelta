@@ -77,6 +77,40 @@ final class FlowDeltaAnalyzerTests: XCTestCase {
         XCTAssertEqual(change.confidence?.tier, .exactName)
     }
 
+    func testCancelledAnalysisStopsWithACancellationError() async throws {
+        let target = RevisionIdentity("target")
+        let comparison = RevisionComparison(
+            base: RevisionIdentity("base"),
+            target: target,
+            files: [FileComparison(
+                old: nil,
+                new: SourceSnapshot(
+                    path: "New.swift",
+                    revision: target,
+                    language: .swift,
+                    text: "func added() { print(1) }"
+                )
+            )]
+        )
+        let analysis = Task {
+            withUnsafeCurrentTask { $0?.cancel() }
+            return try FlowDeltaAnalyzer().analyze(comparison)
+        }
+        do {
+            _ = try await analysis.value
+            XCTFail("Expected the cancelled analysis to throw")
+        } catch is CancellationError {}
+
+        let entityAnalysis = Task {
+            withUnsafeCurrentTask { $0?.cancel() }
+            return try SourceAnalyzer().analyze(XCTUnwrap(comparison.files.first?.new))
+        }
+        do {
+            _ = try await entityAnalysis.value
+            XCTFail("Expected the cancelled file analysis to throw")
+        } catch is CancellationError {}
+    }
+
     func testRevisionAnalysisReportsFileResourceFailuresWithoutAborting() throws {
         let target = RevisionIdentity("target")
         let report = try FlowDeltaAnalyzer().analyze(
@@ -132,6 +166,39 @@ final class FlowDeltaAnalyzerTests: XCTestCase {
         XCTAssertEqual(report.files.first?.entityChanges.first?.kind, .modified)
         XCTAssertTrue(report.files.first?.diagnostics.contains { $0.code == .unsupportedConstruct } == true)
         XCTAssertGreaterThanOrEqual(report.files.first?.diagnostics.count ?? 0, 3)
+    }
+
+    func testRemovedFunctionWithoutAGraphIsNamedFromItsBaseRevision() throws {
+        let base = RevisionIdentity("base")
+        let report = try FlowDeltaAnalyzer().analyze(
+            RevisionComparison(
+                base: base,
+                target: RevisionIdentity("target"),
+                files: [FileComparison(
+                    old: SourceSnapshot(
+                        path: "Removed.swift",
+                        revision: base,
+                        language: .swift,
+                        text: "func kept() {}\nfunc removed() { print(1) }\n"
+                    ),
+                    new: SourceSnapshot(
+                        path: "Removed.swift",
+                        revision: RevisionIdentity("target"),
+                        language: .swift,
+                        text: "func kept() {}\n"
+                    )
+                )]
+            ),
+            limits: AnalysisLimits(maximumFlowNodesPerFunction: 0)
+        )
+
+        let removed = try XCTUnwrap(report.files.first?.entityChanges.first { $0.old?.name == "removed" })
+        XCTAssertEqual(removed.kind, .removed)
+        let diagnostic = try XCTUnwrap(report.files.first?.diagnostics.first {
+            $0.message == "No flow graph was available for \(removed.old?.qualifiedName ?? "")."
+        })
+        XCTAssertEqual(diagnostic.code, .unsupportedConstruct)
+        XCTAssertEqual(diagnostic.range, removed.old?.range)
     }
 
     private func analyzeDemo() throws -> RevisionFlowDeltaReport {

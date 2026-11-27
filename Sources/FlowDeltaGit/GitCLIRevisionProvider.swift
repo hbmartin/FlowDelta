@@ -53,15 +53,15 @@ public struct GitCLIRevisionProvider: RevisionProvider, Sendable {
             throw GitRevisionProviderError.repositoryNotFound(repositoryURL.path)
         }
 
-        let canonicalBase = try stringOutput(
+        let canonicalBase = try await stringOutput(
             runGit(["rev-parse", "--verify", "\(base)^{commit}"], in: repositoryURL),
             context: "base revision"
         ).trimmingCharacters(in: .whitespacesAndNewlines)
-        let canonicalTarget = try stringOutput(
+        let canonicalTarget = try await stringOutput(
             runGit(["rev-parse", "--verify", "\(target)^{commit}"], in: repositoryURL),
             context: "target revision"
         ).trimmingCharacters(in: .whitespacesAndNewlines)
-        let statusData = try runGit(
+        let statusData = try await runGit(
             [
                 "diff", "--name-status", "-z", "--find-renames", "--diff-filter=ACDMR",
                 canonicalBase, canonicalTarget, "--"
@@ -83,30 +83,34 @@ public struct GitCLIRevisionProvider: RevisionProvider, Sendable {
         files.reserveCapacity(records.count)
         for record in records {
             try Task.checkCancellation()
-            let supportedOldPath = record.oldPath.flatMap { path in
-                SourceLanguage(path: path) == nil ? nil : path
+            let supportedOld = record.oldPath.flatMap { path in
+                SourceLanguage(path: path).map { (path: path, language: $0) }
             }
-            let supportedNewPath = record.newPath.flatMap { path in
-                SourceLanguage(path: path) == nil ? nil : path
+            let supportedNew = record.newPath.flatMap { path in
+                SourceLanguage(path: path).map { (path: path, language: $0) }
             }
-            let oldSnapshot = try supportedOldPath.map { path in
-                try loadSnapshot(
-                    path: path,
+            var oldSnapshot: SourceSnapshot?
+            if let supportedOld {
+                oldSnapshot = try await loadSnapshot(
+                    path: supportedOld.path,
+                    language: supportedOld.language,
                     revision: canonicalBase,
                     repositoryURL: repositoryURL,
                     limits: limits
                 )
             }
-            let newSnapshot = try supportedNewPath.map { path in
-                try loadSnapshot(
-                    path: path,
+            var newSnapshot: SourceSnapshot?
+            if let supportedNew {
+                newSnapshot = try await loadSnapshot(
+                    path: supportedNew.path,
+                    language: supportedNew.language,
                     revision: canonicalTarget,
                     repositoryURL: repositoryURL,
                     limits: limits
                 )
             }
             let pathArguments = Array(Set([record.oldPath, record.newPath].compactMap(\.self))).sorted()
-            let diff = try stringOutput(
+            let diff = try await stringOutput(
                 runGit(
                     ["diff", "-U0", "--no-color", "--find-renames", canonicalBase, canonicalTarget, "--"]
                         + pathArguments,
@@ -129,11 +133,12 @@ public struct GitCLIRevisionProvider: RevisionProvider, Sendable {
 
     private func loadSnapshot(
         path: String,
+        language: SourceLanguage,
         revision: String,
         repositoryURL: URL,
         limits: AnalysisLimits
-    ) throws -> SourceSnapshot {
-        let data = try runGit(["show", "\(revision):\(path)"], in: repositoryURL)
+    ) async throws -> SourceSnapshot {
+        let data = try await runGit(["show", "\(revision):\(path)"], in: repositoryURL)
         guard data.count <= limits.maximumBlobBytes else {
             throw GitRevisionProviderError.blobLimitExceeded(
                 path: path,
@@ -144,9 +149,6 @@ public struct GitCLIRevisionProvider: RevisionProvider, Sendable {
         guard let text = String(data: data, encoding: .utf8) else {
             throw GitRevisionProviderError.invalidUTF8(context: path)
         }
-        guard let language = SourceLanguage(path: path) else {
-            throw GitRevisionProviderError.unsupportedSourcePath(path)
-        }
         return SourceSnapshot(
             path: path,
             revision: RevisionIdentity(revision),
@@ -155,7 +157,9 @@ public struct GitCLIRevisionProvider: RevisionProvider, Sendable {
         )
     }
 
-    private func runGit(_ arguments: [String], in repositoryURL: URL) throws -> Data {
+    /// Runs git and returns its output. Cancelling the calling task terminates git and throws `CancellationError`.
+    private func runGit(_ arguments: [String], in repositoryURL: URL) async throws -> Data {
+        try Task.checkCancellation()
         let process = Process()
         process.executableURL = executableURL
         process.arguments = ["-C", repositoryURL.path] + arguments
@@ -169,9 +173,21 @@ public struct GitCLIRevisionProvider: RevisionProvider, Sendable {
         process.standardOutput = output
         process.standardError = error
         try process.run()
-        let outputData = output.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-        let errorData = error.fileHandleForReading.readDataToEndOfFile()
+        let running = RunningGit(process)
+        // The handler covers reading, waiting and collecting error output, so cancelling terminates git even after
+        // it has closed its output. Error output drains on another thread so a full pipe cannot stall git.
+        let (outputData, errorData) = await withTaskCancellationHandler {
+            let errorOutput = PipeDrain(error.fileHandleForReading)
+            let outputData = output.fileHandleForReading.readDataToEndOfFile()
+            process.waitUntilExit()
+            return (outputData, errorOutput.wait())
+        } onCancel: {
+            Self.logger.info(
+                "Terminating git \(arguments.first ?? "", privacy: .public) because its revision comparison was cancelled"
+            )
+            running.terminate()
+        }
+        try Task.checkCancellation()
         guard process.terminationStatus == 0 else {
             throw GitRevisionProviderError.gitFailed(
                 arguments: arguments,
@@ -226,4 +242,51 @@ public struct GitCLIRevisionProvider: RevisionProvider, Sendable {
 private struct NameStatusRecord {
     let oldPath: String?
     let newPath: String?
+}
+
+// swift6-safety-justification: the box is immutable, and Process.terminate(), isRunning and kill(2) may be used from
+// any thread.
+/// Hands the running git process to the cancellation handler, which can run on any thread.
+private final class RunningGit: @unchecked Sendable {
+    /// How long git has to exit after SIGTERM before it is killed.
+    static let terminationGracePeriod: DispatchTimeInterval = .seconds(2)
+
+    private static let logger = Logger(subsystem: "com.hbmartin.FlowDelta", category: "Git")
+    private let process: Process
+
+    init(_ process: Process) {
+        self.process = process
+    }
+
+    /// Sends SIGTERM, then SIGKILL if git is still running after the grace period, so a git or wrapper that ignores
+    /// SIGTERM cannot keep a cancelled comparison waiting. The waiting caller reaps the process.
+    func terminate() {
+        guard process.isRunning else { return }
+        let pid = process.processIdentifier
+        process.terminate()
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + Self.terminationGracePeriod) { [self] in
+            guard process.isRunning else { return }
+            Self.logger.error("git \(pid, privacy: .public) ignored SIGTERM; sending SIGKILL")
+            kill(pid, SIGKILL)
+        }
+    }
+}
+
+// swift6-safety-justification: only the reading thread writes `data`, and `wait()` reads it after the semaphore.
+/// Reads a pipe to its end on another thread. The semaphore publishes the data to `wait()`.
+private final class PipeDrain: @unchecked Sendable {
+    private let finished = DispatchSemaphore(value: 0)
+    private var data = Data()
+
+    init(_ handle: FileHandle) {
+        DispatchQueue.global(qos: .utility).async { [self] in
+            data = handle.readDataToEndOfFile()
+            finished.signal()
+        }
+    }
+
+    func wait() -> Data {
+        finished.wait()
+        return data
+    }
 }

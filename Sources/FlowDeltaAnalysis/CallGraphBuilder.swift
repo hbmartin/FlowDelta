@@ -17,15 +17,7 @@ public struct CallGraphBuilder: Sendable {
         var newNodesByName: [String: [StableID]] = [:]
 
         for change in callableChanges {
-            let id = StableID(
-                namespace: "call-node",
-                components: [
-                    change.old?.path ?? "",
-                    change.new?.path ?? "",
-                    change.old?.qualifiedName ?? "",
-                    change.new?.qualifiedName ?? ""
-                ]
-            )
+            let id = CallGraphNode.stableID(for: change)
             let entity = change.new ?? change.old
             guard let entity else { continue }
             nodes[id] = CallGraphNode(

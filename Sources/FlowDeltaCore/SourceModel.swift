@@ -27,6 +27,8 @@ public enum SourceLanguage: String, Codable, CaseIterable, Sendable {
         case .go: "Go"
         }
     }
+
+    // Whether FlowDelta builds def-use graphs, and so data context and data slices, for this language.
 }
 
 public struct SourceLocation: Codable, Hashable, Sendable, Comparable {

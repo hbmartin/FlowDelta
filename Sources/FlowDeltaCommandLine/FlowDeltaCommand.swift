@@ -5,12 +5,12 @@ import FlowDeltaExport
 import FlowDeltaGit
 import Foundation
 
-@main
-struct FlowDeltaCommand: ParsableCommand {
-    static let configuration = CommandConfiguration(
+/// The `flowdelta` command. It lives in a library so tests import it on every Xcode, and the executable only runs it.
+public struct FlowDeltaCommand: ParsableCommand {
+    public static let configuration = CommandConfiguration(
         commandName: "flowdelta",
         abstract: "Explain how two Git revisions change source control and data flow.",
-        version: "0.2.2"
+        version: "0.3.2"
     )
 
     @Option(name: [.customShort("C"), .long], help: "Path to the Git repository.")
@@ -22,13 +22,24 @@ struct FlowDeltaCommand: ParsableCommand {
     @Option(name: [.customShort("o"), .long], help: "Write output to this path instead of standard output.")
     var output: String?
 
+    @Option(name: .long, help: "Noise to hide: show-all, hide-formatting, or hide-cosmetic. Rewrites are never hidden.")
+    var noise: FlowNoisePolicy = .showAll
+
+    @Flag(name: .long, help: "Group the triage by concern and note a tangled revision.")
+    var groupByConcern = false
+
+    @Flag(name: .long, help: "Append walkthrough steps (table, json, and markdown).")
+    var walkthrough = false
+
     @Argument(help: "Base commit-ish.")
     var base: String
 
     @Argument(help: "Target commit-ish (default: HEAD).")
     var target = "HEAD"
 
-    mutating func run() throws {
+    public init() {}
+
+    public mutating func run() throws {
         let repositoryURL = URL(fileURLWithPath: repository, isDirectory: true).standardizedFileURL
         let baseRevision = base
         let targetRevision = target
@@ -46,7 +57,7 @@ struct FlowDeltaCommand: ParsableCommand {
             }
         }
         let report = try result.wait()
-        let rendered = try FlowDeltaReportExporter().render(report, format: format.exportFormat)
+        let rendered = try FlowDeltaReportExporter().render(report, format: format.exportFormat, options: exportOptions)
         let data = Data(rendered.utf8)
         if let output {
             let outputURL = URL(fileURLWithPath: output).standardizedFileURL
@@ -54,6 +65,19 @@ struct FlowDeltaCommand: ParsableCommand {
         } else {
             FileHandle.standardOutput.write(data)
         }
+    }
+}
+
+extension FlowDeltaCommand {
+    var exportOptions: FlowDeltaExportOptions {
+        FlowDeltaExportOptions(noise: noise, groupByConcern: groupByConcern, includeWalkthrough: walkthrough)
+    }
+}
+
+extension FlowNoisePolicy: ExpressibleByArgument {
+    /// Help shows the spelling `--noise` accepts rather than the Swift case name.
+    public var defaultValueDescription: String {
+        rawValue
     }
 }
 

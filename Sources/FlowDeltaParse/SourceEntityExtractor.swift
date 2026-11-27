@@ -100,7 +100,15 @@ public struct SourceEntityExtractor: Sendable {
             qualifiedName: qualifiedName,
             path: path,
             range: node.range,
-            body: body
+            body: body,
+            parameterNames: classification.callable ? Self.parameterNames(in: node, language: language) : nil,
+            resultNames: classification.callable ? Self.resultNames(in: node, language: language) : nil,
+            declarationHeader: DeclarationHeader.tokens(
+                of: node,
+                name: nameNode,
+                body: body,
+                rules: LanguageProfile.profile(for: language).noise
+            )
         )
         var childContainers = containers
         if classification.container {
@@ -199,6 +207,29 @@ public struct SourceEntityExtractor: Sendable {
         return parameter.text
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .replacingOccurrences(of: "\n", with: " ")
+    }
+
+    /// Receiver, parameter and named-result names for the languages whose data flow reads syntax.
+    static func parameterNames(in declaration: SyntaxNode, language: SourceLanguage) -> [String]? {
+        guard let rules = LanguageProfile.profile(for: language).binding else { return nil }
+        let lists = ["receiver", "parameters", "result"].compactMap { declaration.firstChild(fieldName: $0) }
+        var names: [String] = []
+        for list in lists where list.kind.contains("parameter") {
+            for parameter in list.children where parameter.isNamed {
+                names += rules.declaredNames(ofParameter: parameter)
+            }
+        }
+        return names.filter { !rules.ignoredNames.contains($0) }
+    }
+
+    /// Named results, which a bare `return` reads, for the languages whose data flow reads syntax.
+    static func resultNames(in declaration: SyntaxNode, language: SourceLanguage) -> [String]? {
+        guard let rules = LanguageProfile.profile(for: language).binding, !rules.bareReturnKinds.isEmpty,
+              let list = declaration.firstChild(fieldName: "result"), list.kind.contains("parameter")
+        else { return nil }
+        let names = list.children.filter(\.isNamed).flatMap { rules.declaredNames(ofParameter: $0) }
+            .filter { !rules.ignoredNames.contains($0) }
+        return names.isEmpty ? nil : names
     }
 
     private func goReceiverType(in declaration: SyntaxNode) -> String? {

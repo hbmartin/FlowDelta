@@ -69,8 +69,8 @@ let package = Package(
                 .product(name: "HighlightKit", package: "HighlightKit")
             ]
         ),
-        .executableTarget(
-            name: "FlowDeltaCLI",
+        .target(
+            name: "FlowDeltaCommandLine",
             dependencies: [
                 "FlowDeltaAnalysis",
                 "FlowDeltaCore",
@@ -79,6 +79,7 @@ let package = Package(
                 .product(name: "ArgumentParser", package: "swift-argument-parser")
             ]
         ),
+        .executableTarget(name: "FlowDeltaCLI", dependencies: ["FlowDeltaCommandLine"]),
         .executableTarget(
             name: "FlowDeltaReference",
             dependencies: [
@@ -123,12 +124,14 @@ let package = Package(
         ),
         .testTarget(
             name: "FlowDeltaExportTests",
-            dependencies: ["FlowDeltaCore", "FlowDeltaExport"]
+            dependencies: ["FlowDeltaCore", "FlowDeltaExport"],
+            resources: [.copy("Fixtures")]
         ),
         .testTarget(
             name: "FlowDeltaCLITests",
             dependencies: [
-                "FlowDeltaCLI",
+                "FlowDeltaCommandLine",
+                "FlowDeltaExport",
                 .product(name: "ArgumentParser", package: "swift-argument-parser")
             ]
         )

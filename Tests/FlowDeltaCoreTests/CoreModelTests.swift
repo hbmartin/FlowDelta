@@ -3,6 +3,61 @@ import Foundation
 import XCTest
 
 final class CoreModelTests: XCTestCase {
+    func testSummarySaysEveryAnalyzedLanguageHasDataContext() {
+        XCTAssertEqual(FlowReviewSummary.affectedBasis(for: []), "affected = control context")
+        XCTAssertEqual(FlowReviewSummary.affectedBasis(for: [.python, .go]), "affected = control + data context")
+        XCTAssertEqual(
+            FlowReviewSummary.affectedBasis(for: Set(SourceLanguage.allCases)),
+            "affected = control + data context"
+        )
+    }
+
+    func testSummaryCountsFilesAndFunctionDeltasInTheSingularAndThePlural() {
+        func report(files: Int, functionDeltas: Int) -> RevisionFlowDeltaReport {
+            let location = SourceLocation(utf8Offset: 0, utf16Offset: 0, line: 0, utf16Column: 0)
+            let range = SourceRange(start: location, end: location)
+            let entity = SourceEntity(
+                id: StableID(rawValue: "f"),
+                kind: .function,
+                name: "f",
+                qualifiedName: "f",
+                path: "A.swift",
+                range: range,
+                body: SyntaxNode(id: StableID(rawValue: "b.f"), kind: "block", range: range, text: "")
+            )
+            let change = EntityChange(kind: .modified, old: entity, new: entity, confidence: nil)
+            let delta = FunctionFlowDelta(
+                id: StableID(rawValue: "f.f"),
+                entityChange: change,
+                editScript: nil,
+                oldGraph: nil,
+                newGraph: nil,
+                nodes: [],
+                edges: []
+            )
+            let snapshot = SourceSnapshot(path: "A.swift", revision: RevisionIdentity("r"), language: .swift, text: "")
+            let file = FileFlowDelta(
+                comparison: FileComparison(old: snapshot, new: snapshot),
+                entityChanges: [change],
+                functionDeltas: Array(repeating: delta, count: functionDeltas)
+            )
+            return RevisionFlowDeltaReport(
+                base: RevisionIdentity("a"),
+                target: RevisionIdentity("b"),
+                files: Array(repeating: file, count: files)
+            )
+        }
+
+        XCTAssertEqual(
+            FlowReviewSummary.text(for: report(files: 1, functionDeltas: 1)),
+            "1 file (Swift) • 1 function delta • affected = control + data context"
+        )
+        XCTAssertEqual(
+            FlowReviewSummary.text(for: report(files: 2, functionDeltas: 0)),
+            "2 files (Swift) • 0 function deltas • affected = control + data context"
+        )
+    }
+
     func testSourceLanguageRecognizesM2Extensions() {
         XCTAssertEqual(SourceLanguage(path: "Sources/App.swift"), .swift)
         XCTAssertEqual(SourceLanguage(path: "web/component.tsx"), .typescript)
@@ -86,6 +141,40 @@ final class CoreModelTests: XCTestCase {
         XCTAssertEqual(one.structuralDigest, commentOnlyChange.structuralDigest)
         XCTAssertNotEqual(one.structuralDigest, semanticChange.structuralDigest)
         XCTAssertEqual(one.normalizedTokens, ["x", "1"])
+    }
+
+    func testStructuralDigestKeepsWhitespaceInsideNamedLeavesSuchAsStringContents() {
+        func literal(_ content: String, quote: String = "\"") -> SyntaxNode {
+            SyntaxNode(
+                id: StableID(rawValue: "literal"),
+                kind: "string",
+                range: sourceRange(0, content.utf16.count + 2),
+                text: "\"\(content)\"",
+                children: [
+                    SyntaxNode(
+                        id: StableID(rawValue: "open"),
+                        kind: "\"",
+                        range: sourceRange(0, 1),
+                        text: quote,
+                        isNamed: false
+                    ),
+                    leaf(id: "content", kind: "string_fragment", text: content),
+                    SyntaxNode(
+                        id: StableID(rawValue: "close"),
+                        kind: "\"",
+                        range: sourceRange(0, 1),
+                        text: "\" ",
+                        isNamed: false
+                    )
+                ]
+            )
+        }
+        XCTAssertNotEqual(literal(" a ").structuralDigest, literal("a").structuralDigest, "\" a \" is not \"a\"")
+        XCTAssertEqual(
+            literal("a").structuralDigest,
+            literal("a", quote: " \"").structuralDigest,
+            "Anonymous tokens are trimmed"
+        )
     }
 
     func testCoreModelsRoundTripThroughJSON() throws {

@@ -153,7 +153,10 @@ public struct EntityMatcher: Sendable {
             .renamed
         } else if match.old.path != match.new.path {
             .moved
-        } else if match.old.body.structuralDigest != match.new.body.structuralDigest {
+        } else if match.old.body.structuralDigest != match.new.body.structuralDigest
+            || !match.old.hasSameDeclarationHeader(as: match.new)
+        {
+            // Adding `async`, a modifier or a conformance changes the declaration even when its body stays.
             .modified
         } else {
             .unchanged
