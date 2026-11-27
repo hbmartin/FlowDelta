@@ -12,6 +12,52 @@ final class CoreModelTests: XCTestCase {
         )
     }
 
+    func testSummaryCountsFilesAndFunctionDeltasInTheSingularAndThePlural() {
+        func report(files: Int, functionDeltas: Int) -> RevisionFlowDeltaReport {
+            let location = SourceLocation(utf8Offset: 0, utf16Offset: 0, line: 0, utf16Column: 0)
+            let range = SourceRange(start: location, end: location)
+            let entity = SourceEntity(
+                id: StableID(rawValue: "f"),
+                kind: .function,
+                name: "f",
+                qualifiedName: "f",
+                path: "A.swift",
+                range: range,
+                body: SyntaxNode(id: StableID(rawValue: "b.f"), kind: "block", range: range, text: "")
+            )
+            let change = EntityChange(kind: .modified, old: entity, new: entity, confidence: nil)
+            let delta = FunctionFlowDelta(
+                id: StableID(rawValue: "f.f"),
+                entityChange: change,
+                editScript: nil,
+                oldGraph: nil,
+                newGraph: nil,
+                nodes: [],
+                edges: []
+            )
+            let snapshot = SourceSnapshot(path: "A.swift", revision: RevisionIdentity("r"), language: .swift, text: "")
+            let file = FileFlowDelta(
+                comparison: FileComparison(old: snapshot, new: snapshot),
+                entityChanges: [change],
+                functionDeltas: Array(repeating: delta, count: functionDeltas)
+            )
+            return RevisionFlowDeltaReport(
+                base: RevisionIdentity("a"),
+                target: RevisionIdentity("b"),
+                files: Array(repeating: file, count: files)
+            )
+        }
+
+        XCTAssertEqual(
+            FlowReviewSummary.text(for: report(files: 1, functionDeltas: 1)),
+            "1 file (Swift) • 1 function delta • affected = control + data context"
+        )
+        XCTAssertEqual(
+            FlowReviewSummary.text(for: report(files: 2, functionDeltas: 0)),
+            "2 files (Swift) • 0 function deltas • affected = control + data context"
+        )
+    }
+
     func testSourceLanguageRecognizesM2Extensions() {
         XCTAssertEqual(SourceLanguage(path: "Sources/App.swift"), .swift)
         XCTAssertEqual(SourceLanguage(path: "web/component.tsx"), .typescript)
