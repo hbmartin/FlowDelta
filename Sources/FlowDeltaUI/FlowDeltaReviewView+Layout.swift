@@ -38,8 +38,10 @@ extension FlowDeltaReviewView {
         mainSplit.addArrangedSubview(sidebar)
         mainSplit.addArrangedSubview(detail)
         let sidebarWidth = sidebar.widthAnchor.constraint(equalToConstant: 300)
-        sidebarWidth.priority = .defaultHigh
-        sidebarWidth.isActive = true
+        sidebarWidth.priority = PaneWidthPriority.triagePreferred
+        let sidebarMinimum = sidebar.widthAnchor.constraint(greaterThanOrEqualToConstant: 180)
+        sidebarMinimum.priority = PaneWidthPriority.triageMinimum
+        NSLayoutConstraint.activate([sidebarWidth, sidebarMinimum])
 
         NSLayoutConstraint.activate([
             header.topAnchor.constraint(equalTo: topAnchor),
@@ -191,7 +193,7 @@ extension FlowDeltaReviewView {
         functionLabel.lineBreakMode = .byTruncatingTail
         functionLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         let functionWidth = functionLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 220)
-        functionWidth.priority = .defaultHigh
+        functionWidth.priority = PaneWidthPriority.functionLabelMinimum
         functionWidth.isActive = true
         detailHeader.addSubview(functionLabel)
 
@@ -235,13 +237,11 @@ extension FlowDeltaReviewView {
         graphHostSplit.addArrangedSubview(graphScrollView)
         detailSplit.addArrangedSubview(graphHostSplit)
         detailSplit.addArrangedSubview(sourceView)
-        for constraint in [
-            graphHostSplit.widthAnchor.constraint(greaterThanOrEqualToConstant: 360),
-            sourceView.widthAnchor.constraint(greaterThanOrEqualToConstant: 360)
-        ] {
-            constraint.priority = .defaultHigh
-            constraint.isActive = true
-        }
+        let graphMinimum = graphHostSplit.widthAnchor.constraint(greaterThanOrEqualToConstant: 360)
+        graphMinimum.priority = PaneWidthPriority.graphMinimum
+        let sourceMinimum = sourceView.widthAnchor.constraint(greaterThanOrEqualToConstant: 360)
+        sourceMinimum.priority = PaneWidthPriority.sourceMinimum
+        NSLayoutConstraint.activate([graphMinimum, sourceMinimum])
         let functionLegendGap = functionLabel.trailingAnchor.constraint(
             lessThanOrEqualTo: legend.leadingAnchor,
             constant: -10
@@ -292,4 +292,16 @@ extension FlowDeltaReviewView {
             layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
         }
     }
+}
+
+/// The panes' widths yield to the host window. Each ranks below `windowSizeStayPut`, so a window narrower than the
+/// preferred widths keeps its size instead of growing past the screen, and above `dragThatCannotResizeWindow`, so a
+/// divider drag cannot squeeze a pane past them. When the window is too narrow for every preferred width, the triage
+/// sidebar gives way first, down to its minimum, then the source pane, then the function name.
+enum PaneWidthPriority {
+    static let triageMinimum = NSLayoutConstraint.Priority(499)
+    static let graphMinimum = NSLayoutConstraint.Priority(498)
+    static let sourceMinimum = NSLayoutConstraint.Priority(497)
+    static let triagePreferred = NSLayoutConstraint.Priority(496)
+    static let functionLabelMinimum = NSLayoutConstraint.Priority(495)
 }
