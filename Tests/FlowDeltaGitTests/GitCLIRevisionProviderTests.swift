@@ -146,6 +146,60 @@ final class GitCLIRevisionProviderTests: XCTestCase {
         }
     }
 
+    func testCancellingTheComparisonTerminatesGit() async throws {
+        let repository = try TemporaryGitRepository()
+        let started = repository.url.appendingPathComponent("git-started")
+        let executable = repository.url.appendingPathComponent("slow-git")
+        // exec keeps sleep as the process git's pipe belongs to, so terminating it closes the pipe.
+        try Data("#!/bin/sh\n: > '\(started.path)'\nexec /bin/sleep 60\n".utf8).write(to: executable, options: .atomic)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+
+        let comparison = Task {
+            try await GitCLIRevisionProvider(executableURL: executable).comparison(
+                repositoryURL: repository.url,
+                base: "HEAD^",
+                target: "HEAD"
+            )
+        }
+        let deadline = Date().addingTimeInterval(10)
+        while !FileManager.default.fileExists(atPath: started.path), Date() < deadline {
+            await Task.yield()
+        }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: started.path), "git never started")
+        let cancelled = Date()
+        comparison.cancel()
+
+        do {
+            _ = try await comparison.value
+            XCTFail("Expected the cancelled comparison to throw")
+        } catch is CancellationError {
+            XCTAssertLessThan(Date().timeIntervalSince(cancelled), 10, "git kept running after cancellation")
+        }
+    }
+
+    func testAComparisonCancelledBeforeItStartsLaunchesNoGit() async throws {
+        let repository = try TemporaryGitRepository()
+        let launched = repository.url.appendingPathComponent("git-launched")
+        let executable = repository.url.appendingPathComponent("recording-git")
+        try Data("#!/bin/sh\n: > '\(launched.path)'\n".utf8).write(to: executable, options: .atomic)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+
+        let comparison = Task {
+            withUnsafeCurrentTask { $0?.cancel() }
+            return try await GitCLIRevisionProvider(executableURL: executable).comparison(
+                repositoryURL: repository.url,
+                base: "HEAD^",
+                target: "HEAD"
+            )
+        }
+        do {
+            _ = try await comparison.value
+            XCTFail("Expected the cancelled comparison to throw")
+        } catch is CancellationError {
+            XCTAssertFalse(FileManager.default.fileExists(atPath: launched.path))
+        }
+    }
+
     func testEnforcesChangedFileAndBlobLimits() async throws {
         let repository = try TemporaryGitRepository()
         try repository.write("func first() {}\n", to: "First.swift")

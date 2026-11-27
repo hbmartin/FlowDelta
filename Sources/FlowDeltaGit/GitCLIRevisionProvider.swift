@@ -53,15 +53,15 @@ public struct GitCLIRevisionProvider: RevisionProvider, Sendable {
             throw GitRevisionProviderError.repositoryNotFound(repositoryURL.path)
         }
 
-        let canonicalBase = try stringOutput(
+        let canonicalBase = try await stringOutput(
             runGit(["rev-parse", "--verify", "\(base)^{commit}"], in: repositoryURL),
             context: "base revision"
         ).trimmingCharacters(in: .whitespacesAndNewlines)
-        let canonicalTarget = try stringOutput(
+        let canonicalTarget = try await stringOutput(
             runGit(["rev-parse", "--verify", "\(target)^{commit}"], in: repositoryURL),
             context: "target revision"
         ).trimmingCharacters(in: .whitespacesAndNewlines)
-        let statusData = try runGit(
+        let statusData = try await runGit(
             [
                 "diff", "--name-status", "-z", "--find-renames", "--diff-filter=ACDMR",
                 canonicalBase, canonicalTarget, "--"
@@ -89,24 +89,26 @@ public struct GitCLIRevisionProvider: RevisionProvider, Sendable {
             let supportedNewPath = record.newPath.flatMap { path in
                 SourceLanguage(path: path) == nil ? nil : path
             }
-            let oldSnapshot = try supportedOldPath.map { path in
-                try loadSnapshot(
-                    path: path,
+            var oldSnapshot: SourceSnapshot?
+            if let supportedOldPath {
+                oldSnapshot = try await loadSnapshot(
+                    path: supportedOldPath,
                     revision: canonicalBase,
                     repositoryURL: repositoryURL,
                     limits: limits
                 )
             }
-            let newSnapshot = try supportedNewPath.map { path in
-                try loadSnapshot(
-                    path: path,
+            var newSnapshot: SourceSnapshot?
+            if let supportedNewPath {
+                newSnapshot = try await loadSnapshot(
+                    path: supportedNewPath,
                     revision: canonicalTarget,
                     repositoryURL: repositoryURL,
                     limits: limits
                 )
             }
             let pathArguments = Array(Set([record.oldPath, record.newPath].compactMap(\.self))).sorted()
-            let diff = try stringOutput(
+            let diff = try await stringOutput(
                 runGit(
                     ["diff", "-U0", "--no-color", "--find-renames", canonicalBase, canonicalTarget, "--"]
                         + pathArguments,
@@ -132,8 +134,8 @@ public struct GitCLIRevisionProvider: RevisionProvider, Sendable {
         revision: String,
         repositoryURL: URL,
         limits: AnalysisLimits
-    ) throws -> SourceSnapshot {
-        let data = try runGit(["show", "\(revision):\(path)"], in: repositoryURL)
+    ) async throws -> SourceSnapshot {
+        let data = try await runGit(["show", "\(revision):\(path)"], in: repositoryURL)
         guard data.count <= limits.maximumBlobBytes else {
             throw GitRevisionProviderError.blobLimitExceeded(
                 path: path,
@@ -155,7 +157,9 @@ public struct GitCLIRevisionProvider: RevisionProvider, Sendable {
         )
     }
 
-    private func runGit(_ arguments: [String], in repositoryURL: URL) throws -> Data {
+    /// Runs git and returns its output. Cancelling the calling task terminates git and throws `CancellationError`.
+    private func runGit(_ arguments: [String], in repositoryURL: URL) async throws -> Data {
+        try Task.checkCancellation()
         let process = Process()
         process.executableURL = executableURL
         process.arguments = ["-C", repositoryURL.path] + arguments
@@ -169,9 +173,18 @@ public struct GitCLIRevisionProvider: RevisionProvider, Sendable {
         process.standardOutput = output
         process.standardError = error
         try process.run()
-        let outputData = output.fileHandleForReading.readDataToEndOfFile()
+        let running = RunningGit(process)
+        let outputData = await withTaskCancellationHandler {
+            output.fileHandleForReading.readDataToEndOfFile()
+        } onCancel: {
+            Self.logger.info(
+                "Terminating git \(arguments.first ?? "", privacy: .public) because its revision comparison was cancelled"
+            )
+            running.terminate()
+        }
         process.waitUntilExit()
         let errorData = error.fileHandleForReading.readDataToEndOfFile()
+        try Task.checkCancellation()
         guard process.terminationStatus == 0 else {
             throw GitRevisionProviderError.gitFailed(
                 arguments: arguments,
@@ -226,4 +239,20 @@ public struct GitCLIRevisionProvider: RevisionProvider, Sendable {
 private struct NameStatusRecord {
     let oldPath: String?
     let newPath: String?
+}
+
+// swift6-safety-justification: the box is immutable, and Process.terminate() may be called from any thread.
+/// Hands the running git process to the cancellation handler, which can run on any thread.
+private final class RunningGit: @unchecked Sendable {
+    private let process: Process
+
+    init(_ process: Process) {
+        self.process = process
+    }
+
+    func terminate() {
+        if process.isRunning {
+            process.terminate()
+        }
+    }
 }

@@ -3,6 +3,20 @@ import Foundation
 import XCTest
 
 final class CoreModelTests: XCTestCase {
+    func testOnlyLanguagesWithDefUseRulesSupportDataFlow() {
+        XCTAssertEqual(SourceLanguage.allCases.filter(\.supportsDataFlow), [.swift, .typescript, .javascript])
+    }
+
+    func testSummarySaysWhichLanguagesHaveDataContext() {
+        XCTAssertEqual(FlowReviewSummary.affectedBasis(for: []), "affected = control context")
+        XCTAssertEqual(FlowReviewSummary.affectedBasis(for: [.python, .go]), "affected = control context")
+        XCTAssertEqual(FlowReviewSummary.affectedBasis(for: [.swift, .javascript]), "affected = control + data context")
+        XCTAssertEqual(
+            FlowReviewSummary.affectedBasis(for: [.typescript, .python, .swift]),
+            "affected = control context; data context for Swift, TypeScript"
+        )
+    }
+
     func testSourceLanguageRecognizesM2Extensions() {
         XCTAssertEqual(SourceLanguage(path: "Sources/App.swift"), .swift)
         XCTAssertEqual(SourceLanguage(path: "web/component.tsx"), .typescript)

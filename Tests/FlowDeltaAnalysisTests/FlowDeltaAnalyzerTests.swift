@@ -77,6 +77,40 @@ final class FlowDeltaAnalyzerTests: XCTestCase {
         XCTAssertEqual(change.confidence?.tier, .exactName)
     }
 
+    func testCancelledAnalysisStopsWithACancellationError() async throws {
+        let target = RevisionIdentity("target")
+        let comparison = RevisionComparison(
+            base: RevisionIdentity("base"),
+            target: target,
+            files: [FileComparison(
+                old: nil,
+                new: SourceSnapshot(
+                    path: "New.swift",
+                    revision: target,
+                    language: .swift,
+                    text: "func added() { print(1) }"
+                )
+            )]
+        )
+        let analysis = Task {
+            withUnsafeCurrentTask { $0?.cancel() }
+            return try FlowDeltaAnalyzer().analyze(comparison)
+        }
+        do {
+            _ = try await analysis.value
+            XCTFail("Expected the cancelled analysis to throw")
+        } catch is CancellationError {}
+
+        let entityAnalysis = Task {
+            withUnsafeCurrentTask { $0?.cancel() }
+            return try SourceAnalyzer().analyze(XCTUnwrap(comparison.files.first?.new))
+        }
+        do {
+            _ = try await entityAnalysis.value
+            XCTFail("Expected the cancelled file analysis to throw")
+        } catch is CancellationError {}
+    }
+
     func testRevisionAnalysisReportsFileResourceFailuresWithoutAborting() throws {
         let target = RevisionIdentity("target")
         let report = try FlowDeltaAnalyzer().analyze(

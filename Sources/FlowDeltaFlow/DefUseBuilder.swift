@@ -12,7 +12,7 @@ public struct DefUseBuilder: Sendable {
         graph: ControlFlowGraph,
         language: SourceLanguage
     ) -> DataFlowGraph? {
-        guard language == .swift || language == .typescript || language == .javascript else { return nil }
+        guard language.supportsDataFlow else { return nil }
         let syntaxByID = Dictionary(
             entity.body.descendants.map { ($0.id, $0) },
             uniquingKeysWith: { first, _ in first }

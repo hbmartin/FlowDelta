@@ -1,5 +1,6 @@
 import FlowDeltaCore
 import FlowDeltaMatch
+import FlowDeltaParse
 import Foundation
 import OSLog
 
@@ -19,6 +20,8 @@ public struct FlowDeltaAnalyzer: Sendable {
         callGraphBuilder = CallGraphBuilder()
     }
 
+    /// Analyzes every file in `comparison`. When the calling task is cancelled, analysis stops at the next file,
+    /// entity or function and throws `CancellationError`.
     public func analyze(
         _ comparison: RevisionComparison,
         limits: AnalysisLimits = .default
@@ -29,8 +32,9 @@ public struct FlowDeltaAnalyzer: Sendable {
         var oldAnalyses: [String: SourceFileAnalysis] = [:]
         var newAnalyses: [String: SourceFileAnalysis] = [:]
         for file in comparison.files {
-            let (oldAnalysis, oldDiagnostics) = analyze(file.old, limits: limits)
-            let (newAnalysis, newDiagnostics) = analyze(file.new, limits: limits)
+            try Task.checkCancellation()
+            let (oldAnalysis, oldDiagnostics) = try analyze(file.old, limits: limits)
+            let (newAnalysis, newDiagnostics) = try analyze(file.new, limits: limits)
             if let oldAnalysis, let path = file.old?.path {
                 oldAnalyses[path] = oldAnalysis
                 oldEntities.append(contentsOf: oldAnalysis.entities)
@@ -46,17 +50,7 @@ public struct FlowDeltaAnalyzer: Sendable {
         }
 
         let triage = entityMatcher.triage(old: oldEntities, new: newEntities)
-        var changesByFile: [StableID: [EntityChange]] = [:]
-        for change in triage.changes {
-            let destinationPath = change.new?.path ?? change.old?.path
-            let file = analyzedFiles.first { analyzed in
-                analyzed.comparison.new?.path == destinationPath
-                    || (change.new == nil && analyzed.comparison.old?.path == destinationPath)
-            }
-            if let file {
-                changesByFile[file.id, default: []].append(change)
-            }
-        }
+        let changesByFile = Self.group(triage.changes, by: analyzedFiles)
 
         var files: [FileFlowDelta] = []
         var reportDiagnostics: [AnalysisDiagnostic] = []
@@ -68,6 +62,7 @@ public struct FlowDeltaAnalyzer: Sendable {
             for change in changes where change.kind != .unchanged
                 && Self.isCallable(change.old?.kind ?? change.new?.kind)
             {
+                try Task.checkCancellation()
                 let oldGraph = change.old.flatMap { old in oldAnalyses[old.path]?.graphs[old.id] }
                 let newGraph = change.new.flatMap { new in newAnalyses[new.path]?.graphs[new.id] }
                 let oldDataGraph = change.old.flatMap { old in oldAnalyses[old.path]?.dataGraphs[old.id] }
@@ -120,19 +115,46 @@ public struct FlowDeltaAnalyzer: Sendable {
     private func analyze(
         _ snapshot: SourceSnapshot?,
         limits: AnalysisLimits
-    ) -> (SourceFileAnalysis?, [AnalysisDiagnostic]) {
+    ) throws -> (SourceFileAnalysis?, [AnalysisDiagnostic]) {
         guard let snapshot else { return (nil, []) }
         do {
             let analysis = try sourceAnalyzer.analyze(snapshot, limits: limits)
             return (analysis, analysis.diagnostics)
+        } catch is CancellationError {
+            throw CancellationError()
         } catch {
             return (nil, [AnalysisDiagnostic(
                 severity: .error,
-                code: .resourceLimit,
+                code: Self.diagnosticCode(for: error),
                 message: "Could not analyze \(snapshot.path): \(String(describing: error)).",
                 path: snapshot.path
             )])
         }
+    }
+
+    /// Assigns each entity change to the file it ends up in, or to the file it was removed from.
+    private static func group(_ changes: [EntityChange], by files: [AnalyzedFile]) -> [StableID: [EntityChange]] {
+        var changesByFile: [StableID: [EntityChange]] = [:]
+        for change in changes {
+            let destinationPath = change.new?.path ?? change.old?.path
+            let file = files.first { analyzed in
+                analyzed.comparison.new?.path == destinationPath
+                    || (change.new == nil && analyzed.comparison.old?.path == destinationPath)
+            }
+            if let file {
+                changesByFile[file.id, default: []].append(change)
+            }
+        }
+        return changesByFile
+    }
+
+    /// Only exceeding an analysis limit is a resource limit; any other failure to analyze a file is a FlowDelta
+    /// invariant violation, so hosts don't suggest raising a limit that would not help.
+    static func diagnosticCode(for error: any Error) -> DiagnosticCode {
+        if case SourceSyntaxParserError.nodeLimitExceeded = error {
+            return .resourceLimit
+        }
+        return .internalInvariant
     }
 
     private static func isCallable(_ kind: EntityKind?) -> Bool {

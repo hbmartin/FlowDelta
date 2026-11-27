@@ -31,7 +31,9 @@ The default CLI output is an entity triage table followed by per-function flow s
 
 Matching confidence is part of the model and exports. Nodes labeled `affected` carry causality links whose basis is explicitly `control`, `data`, or both. Data-flow claims are limited to Swift and TypeScript/JavaScript in M2; Python and Go remain control-flow only.
 
-Analysis has hard changed-file, blob, syntax-node, flow-node, and flow-edge limits. A file or function can degrade to diagnostics while the remainder of the report stays usable.
+Analysis has hard changed-file, blob, syntax-node, flow-node, and flow-edge limits. A file or function can degrade to diagnostics while the remainder of the report stays usable. Only an exceeded limit is reported as `resourceLimit`; any other failure to analyze a file is `internalInvariant`.
+
+Analysis and revision loading are cancellable. Cancelling the task that runs `FlowDeltaAnalyzer.analyze` stops it at the next file, entity, or function, and cancelling `GitCLIRevisionProvider.comparison` terminates the running `git` process. Both then throw `CancellationError`, so hosts should treat that error as "superseded" rather than as a failure.
 
 See [PLAN.md](PLAN.md) for the current architecture, milestone status, and release gate. Implementation decisions and validation evidence are recorded in [notes](notes/).
 

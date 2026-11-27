@@ -56,8 +56,7 @@ public final class FlowDeltaReviewView: NSView, NSTableViewDataSource, NSTableVi
     public func display(_ report: RevisionFlowDeltaReport) {
         currentReport = report
         revisionLabel.stringValue = "\(ReviewViewComponents.short(report.base.value)) → \(ReviewViewComponents.short(report.target.value))"
-        let languages = Set(report.files.map(\.comparison.language.displayName)).sorted().joined(separator: ", ")
-        summaryLabel.stringValue = "\(report.files.count) files (\(languages)) • \(report.functionDeltas.count) function deltas • affected = control + data context"
+        summaryLabel.stringValue = FlowReviewSummary.text(for: report)
         rows = report.files.flatMap { file in
             file.entityChanges.map { change in
                 ReviewRow(
