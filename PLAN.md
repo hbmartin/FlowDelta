@@ -100,7 +100,9 @@ Package evidence: `notes/009-m2-validation.md` and `notes/010-m2-release-boundar
 
 0.3.0 ships the walkthrough, Python and Go def-use binding rules, the noise dial and concern grouping, through the Core policies, the export options, the CLI flags and the native review view. Design: `notes/012-m3-design.md`. Implementation: `notes/013-m3-implementation.md`. Validation: `notes/014-m3-validation.md`. MCP hooks, the iPad-ready core audit and a dark palette for the review chrome are deferred beyond 0.3.0.
 
-0.3.1 fixes the defects that the review of 0.3.0 found in noise, data flow, grouping, Git cancellation and the review view: `notes/015-0.3.1-review-fixes.md`. GitX pins 0.3.1.
+0.3.1 fixes the defects that the review of 0.3.0 found in noise, data flow, grouping, Git cancellation and the review view: `notes/015-0.3.1-review-fixes.md`.
+
+0.3.2 fixes the defects that the review of 0.3.1 found: Swift `self.` and JSX text in noise, declaration headers and a type's literals in matching and grouping, Go block scopes and Python definition-time reads in data flow, and git that ignores SIGTERM: `notes/016-0.3.2-review-fixes.md`. GitX pins 0.3.2.
 
 ## M1 release gate
 

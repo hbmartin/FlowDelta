@@ -44,7 +44,7 @@ final class FlowDeltaCommandTests: XCTestCase {
         )
         XCTAssertEqual(try FlowDeltaCommand.parse(["base"]).exportOptions, .default)
         XCTAssertThrowsError(try FlowDeltaCommand.parse(["--noise", "hide-everything", "base"]))
-        XCTAssertEqual(FlowDeltaCommand.configuration.version, "0.3.1")
+        XCTAssertEqual(FlowDeltaCommand.configuration.version, "0.3.2")
     }
 
     func testHelpShowsTheNoiseDefaultAsTheSpellingTheParserAccepts() throws {

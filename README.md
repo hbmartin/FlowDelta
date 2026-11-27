@@ -41,7 +41,7 @@ Matching confidence is part of the model and exports. Nodes labeled `affected` c
 
 Analysis has hard changed-file, blob, syntax-node, flow-node, and flow-edge limits. A file or function can degrade to diagnostics while the remainder of the report stays usable. Only an exceeded limit is reported as `resourceLimit`; any other failure to analyze a file is `internalInvariant`.
 
-Analysis and revision loading are cancellable. Cancelling the task that runs `FlowDeltaAnalyzer.analyze` stops it at the next file, entity, or function, and cancelling `GitCLIRevisionProvider.comparison` terminates the running `git` process. Both then throw `CancellationError`, so hosts should treat that error as "superseded" rather than as a failure.
+Analysis and revision loading are cancellable. Cancelling the task that runs `FlowDeltaAnalyzer.analyze` stops it at the next file, entity, or function, and cancelling `GitCLIRevisionProvider.comparison` terminates the running `git` process, killing it if it is still running two seconds after SIGTERM. Both then throw `CancellationError`, so hosts should treat that error as "superseded" rather than as a failure.
 
 See [PLAN.md](PLAN.md) for the current architecture, milestone status, and release gate. Implementation decisions and validation evidence are recorded in [notes](notes/).
 
