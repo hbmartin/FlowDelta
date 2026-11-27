@@ -52,9 +52,14 @@ public struct SyntaxNode: Codable, Hashable, Sendable, Identifiable {
     public var structuralDigest: String {
         let body: String
         if children.isEmpty {
-            let token = kind == "comment"
-                ? ""
-                : text.trimmingCharacters(in: .whitespacesAndNewlines)
+            // Named leaves such as string contents keep their whitespace; anonymous tokens are trimmed.
+            let token = if kind == "comment" {
+                ""
+            } else if isNamed {
+                text
+            } else {
+                text.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
             body = "\(kind):\(token)"
         } else {
             body = "\(kind)[\(children.map(\.structuralDigest).joined(separator: ","))]"

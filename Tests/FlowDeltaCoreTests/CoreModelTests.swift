@@ -143,6 +143,40 @@ final class CoreModelTests: XCTestCase {
         XCTAssertEqual(one.normalizedTokens, ["x", "1"])
     }
 
+    func testStructuralDigestKeepsWhitespaceInsideNamedLeavesSuchAsStringContents() {
+        func literal(_ content: String, quote: String = "\"") -> SyntaxNode {
+            SyntaxNode(
+                id: StableID(rawValue: "literal"),
+                kind: "string",
+                range: sourceRange(0, content.utf16.count + 2),
+                text: "\"\(content)\"",
+                children: [
+                    SyntaxNode(
+                        id: StableID(rawValue: "open"),
+                        kind: "\"",
+                        range: sourceRange(0, 1),
+                        text: quote,
+                        isNamed: false
+                    ),
+                    leaf(id: "content", kind: "string_fragment", text: content),
+                    SyntaxNode(
+                        id: StableID(rawValue: "close"),
+                        kind: "\"",
+                        range: sourceRange(0, 1),
+                        text: "\" ",
+                        isNamed: false
+                    )
+                ]
+            )
+        }
+        XCTAssertNotEqual(literal(" a ").structuralDigest, literal("a").structuralDigest, "\" a \" is not \"a\"")
+        XCTAssertEqual(
+            literal("a").structuralDigest,
+            literal("a", quote: " \"").structuralDigest,
+            "Anonymous tokens are trimmed"
+        )
+    }
+
     func testCoreModelsRoundTripThroughJSON() throws {
         let snapshot = SourceSnapshot(
             path: "Sources/Emoji.swift",

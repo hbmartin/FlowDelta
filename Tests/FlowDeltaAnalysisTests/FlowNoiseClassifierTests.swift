@@ -39,14 +39,15 @@ final class FlowNoiseClassifierTests: XCTestCase {
         XCTAssertTrue(nodes.values.allSatisfy { $0.state == .modified || $0.noise == nil })
     }
 
-    func testTypeScriptDropsSemicolonsAndThisButPythonKeepsSelf() throws {
+    func testScriptsDropSemicolonsButKeepThisAndPythonKeepsSelf() throws {
         let script = try changedNodes(
             old: "function run(items) {\n  this.reset();\n  const count = items.length;\n  return count + 1;\n}\n",
             new: "function run(items) {\n  reset()\n  const count = items.length\n  return count + 2\n}\n",
             path: "run.ts",
             language: .typescript
         )
-        XCTAssertEqual(script["reset()"]?.noise, .optionalSyntax)
+        XCTAssertEqual(script["reset()"]?.state, .modified)
+        XCTAssertNil(script["reset()"]?.noise, "this.reset() calls a member; reset() resolves a lexical binding")
         XCTAssertEqual(script["const count = items.length"]?.noise, .optionalSyntax)
         XCTAssertNil(script["return count + 2"]?.noise)
 
@@ -58,6 +59,85 @@ final class FlowNoiseClassifierTests: XCTestCase {
         )
         XCTAssertEqual(python["reset()"]?.state, .modified)
         XCTAssertNil(python["reset()"]?.noise, "Python's self. is how an attribute is reached")
+    }
+
+    func testCommasThatChangeAValueAreNeverOptional() throws {
+        func noise(_ old: String, _ new: String, path: String, language: SourceLanguage) throws -> FlowNoiseLevel? {
+            let nodes = try changedNodes(old: old, new: new, path: path, language: language)
+            let node = try XCTUnwrap(nodes.values.first { $0.new?.label.hasPrefix("return") == true }, "\(nodes.keys)")
+            XCTAssertEqual(node.state, .modified)
+            return node.noise
+        }
+        func python(_ value: String) -> String {
+            "def make(value, other, items, key):\n    return \(value)\n"
+        }
+        func script(_ value: String) -> String {
+            "function make(a) {\n  return \(value)\n}\n"
+        }
+        XCTAssertNil(
+            try noise(python("(value,)"), python("(value)"), path: "a.py", language: .python),
+            "A singleton tuple"
+        )
+        XCTAssertNil(try noise(python("items[key,]"), python("items[key]"), path: "a.py", language: .python))
+        XCTAssertEqual(
+            try noise(python("(value, other,)"), python("(value, other)"), path: "a.py", language: .python),
+            .optionalSyntax
+        )
+        XCTAssertEqual(
+            try noise(python("len(items,)"), python("len(items)"), path: "a.py", language: .python),
+            .optionalSyntax
+        )
+        XCTAssertEqual(
+            try noise(python("[value,]"), python("[value]"), path: "a.py", language: .python),
+            .optionalSyntax
+        )
+        XCTAssertNil(try noise(script("[,]"), script("[]"), path: "a.js", language: .javascript), "An array hole")
+        XCTAssertNil(try noise(script("[a,,]"), script("[a,]"), path: "a.js", language: .javascript))
+        XCTAssertEqual(try noise(script("[a,]"), script("[a]"), path: "a.js", language: .javascript), .optionalSyntax)
+    }
+
+    func testStringLiteralsCompareExactly() throws {
+        func noise(_ old: String, _ new: String, path: String, language: SourceLanguage) throws -> FlowNoiseLevel? {
+            let nodes = try changedNodes(old: old, new: new, path: path, language: language)
+            let node = try XCTUnwrap(nodes.values.first { $0.new?.label.hasPrefix("return") == true }, "\(nodes.keys)")
+            XCTAssertEqual(node.state, .modified)
+            return node.noise
+        }
+        func script(_ value: String) -> String {
+            "function label() {\n  return \(value)\n}\n"
+        }
+        XCTAssertNil(try noise(script("\" a \""), script("\"a\""), path: "a.js", language: .javascript))
+        XCTAssertNil(try noise(script("\";\""), script("\"\""), path: "a.ts", language: .typescript))
+        XCTAssertNil(try noise(script("`a ${b}`"), script("`a  ${b}`"), path: "a.js", language: .javascript))
+        XCTAssertEqual(
+            try noise(script("\"a\";"), script("\"a\""), path: "a.js", language: .javascript),
+            .optionalSyntax
+        )
+        XCTAssertNil(try noise(
+            "func label() -> String {\n    return \"a  b\"\n}\n",
+            "func label() -> String {\n    return \"a b\"\n}\n",
+            path: "A.swift",
+            language: .swift
+        ))
+        XCTAssertNil(try noise(
+            "def label():\n    return 'x;'\n",
+            "def label():\n    return 'x'\n",
+            path: "a.py",
+            language: .python
+        ))
+        XCTAssertNil(try noise(
+            "package a\n\nfunc label() string {\n\treturn \" a \"\n}\n",
+            "package a\n\nfunc label() string {\n\treturn \"a\"\n}\n",
+            path: "a.go",
+            language: .go
+        ))
+        let commentedGo = try noise(
+            "package a\n\nfunc label(n int) string {\n\tn++\n\treturn /* raw */ `a`\n}\n",
+            "package a\n\nfunc label(n int) string {\n\tn--\n\treturn `a`\n}\n",
+            path: "a.go",
+            language: .go
+        )
+        XCTAssertEqual(commentedGo, .formatting, "Text around a literal is still formatting")
     }
 
     func testAnEditPastTheLabelsTruncationPointIsAModification() throws {
@@ -116,7 +196,7 @@ final class FlowNoiseClassifierTests: XCTestCase {
         XCTAssertNil(level(["x", "<", "y"], ["y", "<", "x"]))
         XCTAssertNil(level(["x", "==", "y", "+", "1"], ["y", "+", "1", "==", "x"]), "Only a lone comparison commutes")
         XCTAssertEqual(level(["a"], ["a"]), .formatting)
-        XCTAssertEqual(FlowNoiseClassifier.tokens(of: SyntaxNode.leaf("  x  "), comments: []), ["x"])
+        XCTAssertEqual(FlowNoiseClassifier.tokens(of: SyntaxNode.leaf("  x  "), rules: swift), ["x"])
     }
 
     func testEveryLanguageHasNoiseRules() {
@@ -125,6 +205,15 @@ final class FlowNoiseClassifierTests: XCTestCase {
         }
         XCTAssertTrue(LanguageProfile.profile(for: .python).noise.optionalReceivers.isEmpty)
         XCTAssertTrue(LanguageProfile.profile(for: .go).noise.optionalReceivers.isEmpty)
+        XCTAssertTrue(LanguageProfile.profile(for: .javascript).noise.optionalReceivers.isEmpty)
+        XCTAssertTrue(LanguageProfile.profile(for: .typescript).noise.optionalReceivers.isEmpty)
+        for language in SourceLanguage.allCases {
+            XCTAssertFalse(LanguageProfile.profile(for: language).noise.literalKinds.isEmpty, "\(language)")
+        }
+        XCTAssertEqual(
+            LanguageProfile.profile(for: .python).noise.singletonTupleKinds,
+            ["tuple", "tuple_pattern", "subscript"]
+        )
     }
 
     // MARK: Helpers

@@ -49,13 +49,18 @@ struct FlowNoiseClassifier {
         return nil
     }
 
+    /// The token for a comma that makes a one-element tuple. It never equals an optional `,`.
+    static let tupleComma = ",(one-element tuple)"
+
     /// Drops optional tokens, optional receivers, trailing commas and one pair of parentheses around a condition.
+    /// A comma right after an opening bracket or another comma is an array hole and stays.
     static func withoutOptionalSyntax(_ tokens: [String], rules: LanguageNoiseRules, isCondition: Bool) -> [String] {
         var result: [String] = []
         var index = 0
         while index < tokens.count {
             let token = tokens[index]
             let next = index + 1 < tokens.count ? tokens[index + 1] : nil
+            let previous = index > 0 ? tokens[index - 1] : nil
             defer { index += 1 }
             if rules.optionalTokens.contains(token) {
                 continue
@@ -65,7 +70,9 @@ struct FlowNoiseClassifier {
                 index += 1
                 continue
             }
-            if rules.allowsTrailingCommas, token == ",", let next, [")", "]", "}"].contains(next) {
+            if rules.allowsTrailingCommas, token == ",", let next, [")", "]", "}"].contains(next),
+               let previous, !["(", "[", "{", ","].contains(previous)
+            {
                 continue
             }
             result.append(token)
@@ -123,22 +130,42 @@ struct FlowNoiseClassifier {
         }
         return outermost
             .sorted { ($0.range.start.utf16Offset, $0.id) < ($1.range.start.utf16Offset, $1.id) }
-            .flatMap { Self.tokens(of: $0, comments: rules.commentKinds) }
+            .flatMap { Self.tokens(of: $0, rules: rules) }
     }
 
     private static func contains(_ outer: SourceRange, _ inner: SourceRange) -> Bool {
         outer.start <= inner.start && inner.end <= outer.end
     }
 
-    static func tokens(of node: SyntaxNode, comments: Set<String>) -> [String] {
-        if comments.contains(node.kind) {
+    /// A node's tokens: comments drop out, a literal is one token with its exact text, and the comma of a
+    /// one-element tuple becomes `tupleComma`.
+    static func tokens(of node: SyntaxNode, rules: LanguageNoiseRules) -> [String] {
+        if rules.commentKinds.contains(node.kind) {
             return []
+        }
+        if rules.literalKinds.contains(node.kind) {
+            return [node.text]
         }
         if node.children.isEmpty {
             let token = node.text.trimmingCharacters(in: .whitespacesAndNewlines)
             return token.isEmpty ? [] : [token]
         }
-        return node.children.flatMap { tokens(of: $0, comments: comments) }
+        let tupleComma = singletonTupleComma(in: node, rules: rules)
+        return node.children.indices.flatMap { index in
+            index == tupleComma ? [Self.tupleComma] : tokens(of: node.children[index], rules: rules)
+        }
+    }
+
+    /// The index of the comma that makes `node` a one-element tuple: its only comma, right before its closing bracket.
+    private static func singletonTupleComma(in node: SyntaxNode, rules: LanguageNoiseRules) -> Int? {
+        guard rules.singletonTupleKinds.contains(node.kind) else { return nil }
+        let significant = node.children.indices.filter { !rules.commentKinds.contains(node.children[$0].kind) }
+        let commas = significant.filter { node.children[$0].children.isEmpty && node.children[$0].text == "," }
+        guard commas.count == 1, let comma = commas.first,
+              let position = significant.firstIndex(of: comma), position + 1 < significant.count,
+              [")", "]"].contains(node.children[significant[position + 1]].text)
+        else { return nil }
+        return comma
     }
 
     private static func index(_ body: SyntaxNode?) -> [StableID: SyntaxNode] {

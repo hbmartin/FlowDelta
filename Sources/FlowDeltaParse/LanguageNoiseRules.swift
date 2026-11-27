@@ -8,19 +8,30 @@ public struct LanguageNoiseRules: Hashable, Sendable {
     public let optionalTokens: Set<String>
     /// Receivers that are optional before `.`, such as Swift's `self`.
     public let optionalReceivers: Set<String>
-    /// Whether a trailing `,` before a closing bracket is optional.
+    /// Whether a trailing `,` before a closing bracket is optional. A comma right after an opening bracket or another
+    /// comma is an array hole and is never optional.
     public let allowsTrailingCommas: Bool
+    /// Literal kinds compared by their exact text as one token, so whitespace and punctuation inside a string are
+    /// never noise.
+    public let literalKinds: Set<String>
+    /// Kinds whose only comma, written right before the closing bracket, makes a one-element tuple, such as
+    /// Python's `(x,)` and `a[x,]`. That comma is never optional.
+    public let singletonTupleKinds: Set<String>
 
     public init(
         commentKinds: Set<String>,
         optionalTokens: Set<String>,
         optionalReceivers: Set<String>,
-        allowsTrailingCommas: Bool
+        allowsTrailingCommas: Bool,
+        literalKinds: Set<String> = [],
+        singletonTupleKinds: Set<String> = []
     ) {
         self.commentKinds = commentKinds
         self.optionalTokens = optionalTokens
         self.optionalReceivers = optionalReceivers
         self.allowsTrailingCommas = allowsTrailingCommas
+        self.literalKinds = literalKinds
+        self.singletonTupleKinds = singletonTupleKinds
     }
 }
 
@@ -33,14 +44,22 @@ public extension LanguageProfile {
                 commentKinds: ["comment", "multiline_comment"],
                 optionalTokens: [";"],
                 optionalReceivers: ["self"],
-                allowsTrailingCommas: true
+                allowsTrailingCommas: true,
+                literalKinds: [
+                    "line_string_literal",
+                    "multi_line_string_literal",
+                    "raw_string_literal",
+                    "regex_literal"
+                ]
             )
         case .typescript, .javascript:
+            // `this.reset()` calls a member while `reset()` resolves a lexical or global binding, so `this.` stays.
             LanguageNoiseRules(
                 commentKinds: ["comment"],
                 optionalTokens: [";"],
-                optionalReceivers: ["this"],
-                allowsTrailingCommas: true
+                optionalReceivers: [],
+                allowsTrailingCommas: true,
+                literalKinds: ["string", "template_string", "regex"]
             )
         case .python:
             // Python's `self.` is how an instance attribute is reached, so it is never optional.
@@ -48,14 +67,17 @@ public extension LanguageProfile {
                 commentKinds: ["comment"],
                 optionalTokens: [";"],
                 optionalReceivers: [],
-                allowsTrailingCommas: true
+                allowsTrailingCommas: true,
+                literalKinds: ["string", "concatenated_string"],
+                singletonTupleKinds: ["tuple", "tuple_pattern", "subscript"]
             )
         case .go:
             LanguageNoiseRules(
                 commentKinds: ["comment"],
                 optionalTokens: [";"],
                 optionalReceivers: [],
-                allowsTrailingCommas: true
+                allowsTrailingCommas: true,
+                literalKinds: ["interpreted_string_literal", "raw_string_literal", "rune_literal"]
             )
         }
     }
