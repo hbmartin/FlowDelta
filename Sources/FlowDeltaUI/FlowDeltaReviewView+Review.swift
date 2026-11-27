@@ -115,6 +115,8 @@ extension FlowDeltaReviewView {
         guard grouped != groupsByConcernEnabled else { return }
         Self.logger.info("Review triage grouping by concern is now \(grouped ? "on" : "off", privacy: .public)")
         groupsByConcernEnabled = grouped
+        // Steps follow triage order, which regrouping changes.
+        endWalkthroughSilently()
         let selectedID = rows.indices.contains(tableView.selectedRow) ? rows[tableView.selectedRow].entity?.change
             .entityID : nil
         rebuildTriageRows()
@@ -198,8 +200,13 @@ extension FlowDeltaReviewView {
         moveWalkthrough(to: 0)
     }
 
+    /// Shows a step. Its selections are reported once, by the caller, after the bar shows the step.
     func moveWalkthrough(to index: Int) {
         guard walkthroughSteps.indices.contains(index) else { return }
+        withoutReportingChanges { renderWalkthroughStep(at: index) }
+    }
+
+    private func renderWalkthroughStep(at index: Int) {
         walkthroughIndex = index
         let step = walkthroughSteps[index]
         if presentation != .delta {
@@ -250,6 +257,15 @@ extension FlowDeltaReviewView {
             graphView.emphasizeNodes(withStableIDs: nil)
             updateSliceFocus()
         }
+    }
+
+    /// Ends a walkthrough when a selection shows a function outside its current step.
+    func endWalkthroughIfOutsideStep(_ entry: ReviewRow) {
+        guard let walkthroughIndex, walkthroughSteps.indices.contains(walkthroughIndex),
+              walkthroughSteps[walkthroughIndex].functionID != entry.function?.id
+        else { return }
+        Self.logger.info("Ending the walkthrough because another entity was chosen")
+        endWalkthroughSilently()
     }
 
     private func updateWalkthroughButtons() {

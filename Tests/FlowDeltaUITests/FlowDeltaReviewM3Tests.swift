@@ -147,6 +147,62 @@ final class FlowDeltaReviewM3Tests: XCTestCase {
         XCTAssertEqual(recorder.causes.last, .host)
     }
 
+    func testChoosingAnotherFunctionOrRegroupingEndsTheWalkthrough() throws {
+        let view = FlowDeltaReviewView(frame: CGRect(x: 0, y: 0, width: 1280, height: 820))
+        let recorder = StateRecorder()
+        view.delegate = recorder
+        try view.display(makeTangledReport())
+        view.setNoise(.hideCosmetic)
+        let table = try XCTUnwrap(view.identified(NSTableView.self, "FlowDelta.Review.Triage"))
+        let bar = try XCTUnwrap(view.identified(NSView.self, "FlowDelta.Review.WalkthroughBar"))
+        view.startWalkthrough()
+        let steps = view.activeWalkthroughSteps
+        XCTAssertEqual(steps.count, 2)
+        view.showWalkthroughStep(at: 1)
+        XCTAssertEqual(view.state.walkthroughStep, 1, "The walkthrough's own navigation keeps it")
+        XCTAssertFalse(bar.isHidden)
+        let walkedRow = table.selectedRow
+
+        let otherRow = try XCTUnwrap((0 ..< view.triageRowCount).first { $0 != walkedRow && table.delegate?
+                .tableView?(table, shouldSelectRow: $0) == true
+        })
+        table.selectRowIndexes([otherRow], byExtendingSelection: false)
+        XCTAssertTrue(bar.isHidden, "Choosing a function outside the step ends the walkthrough")
+        XCTAssertNil(view.state.walkthroughStep)
+        XCTAssertNil(view.emphasizedGraphNodeStableIDs)
+        XCTAssertEqual(recorder.causes.last, .user)
+
+        view.startWalkthrough()
+        view.selectTriageRow(walkedRow)
+        XCTAssertTrue(bar.isHidden, "A host selection outside the step ends it too")
+        XCTAssertNil(recorder.states.last?.walkthroughStep)
+
+        view.startWalkthrough()
+        view.setGroupsByConcern(true)
+        XCTAssertTrue(bar.isHidden, "Regrouping changes the order, so it ends the walkthrough")
+        XCTAssertNil(view.state.walkthroughStep)
+        XCTAssertTrue(view.activeWalkthroughSteps.isEmpty)
+    }
+
+    func testADelegateThatEndsTheWalkthroughOnAMoveLeavesItEnded() throws {
+        let view = FlowDeltaReviewView(frame: CGRect(x: 0, y: 0, width: 1280, height: 820))
+        let ender = WalkthroughEnder()
+        view.delegate = ender
+        try view.display(makeTangledReport())
+        view.setNoise(.hideCosmetic)
+        view.startWalkthrough()
+        ender.armed = true
+
+        try XCTUnwrap(view.identified(NSButton.self, "FlowDelta.Review.Walkthrough.Next")).performClick(nil)
+        XCTAssertEqual(ender.stepsSeen, [1], "The move is reported once, after the step is on screen")
+        XCTAssertTrue(try XCTUnwrap(view.identified(NSView.self, "FlowDelta.Review.WalkthroughBar")).isHidden)
+        XCTAssertNil(view.state.walkthroughStep)
+        XCTAssertNotEqual(
+            try XCTUnwrap(view.identified(NSTextField.self, "FlowDelta.Review.Walkthrough.Step")).stringValue,
+            "Step 2 of 0"
+        )
+    }
+
     func testAWalkthroughWithNothingVisibleSaysSo() throws {
         let view = FlowDeltaReviewView(frame: CGRect(x: 0, y: 0, width: 1280, height: 820))
         try view.display(makeReport(files: [(
@@ -237,6 +293,24 @@ private extension NSView {
 
     func identified<View: NSView>(_: View.Type, _ identifier: String) -> View? {
         allDescendants.first { $0.accessibilityIdentifier() == identifier } as? View
+    }
+}
+
+/// Ends the walkthrough from the first user change it hears once armed, as a host might.
+@MainActor
+private final class WalkthroughEnder: FlowDeltaReviewViewDelegate {
+    var armed = false
+    private(set) var stepsSeen: [Int?] = []
+
+    func flowDeltaReviewView(
+        _ view: FlowDeltaReviewView,
+        didChange state: FlowReviewState,
+        cause: FlowReviewChangeCause
+    ) {
+        guard armed, cause == .user else { return }
+        armed = false
+        stepsSeen.append(state.walkthroughStep)
+        view.endWalkthrough()
     }
 }
 

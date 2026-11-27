@@ -459,7 +459,8 @@ public extension FlowGraphView {
 
     override func becomeFirstResponder() -> Bool {
         guard super.becomeFirstResponder() else { return false }
-        if selectedNode == nil {
+        // A selection whose node left the graph counts as none.
+        if selectedNode.flatMap({ currentLayout?.nodeFrames[$0] }) == nil {
             moveSelection(.first)
         }
         noteFocusRingMaskChanged()

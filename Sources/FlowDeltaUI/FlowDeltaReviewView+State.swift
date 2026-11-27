@@ -8,8 +8,9 @@ public extension FlowDeltaReviewView {
         FlowReviewPresentation(rawValue: modeControl.selectedSegment) ?? .delta
     }
 
+    /// The direction of the slice on screen, or nil when the review draws none.
     var sliceDirection: FlowSliceDirection? {
-        guard sliceButton.state == .on else { return nil }
+        guard sliceOrigin != nil else { return nil }
         return FlowSliceDirection(rawValue: sliceDirectionControl.selectedSegment) ?? .forward
     }
 
@@ -18,7 +19,8 @@ public extension FlowDeltaReviewView {
             presentation: presentation,
             slice: sliceDirection,
             selectedFunctionName: currentFunction?.displayName,
-            selectedNodeStableID: graphView.selectedStableID,
+            selectedNodeStableID: graphView.selectedStableID
+                ?? (comparisonGraphIsVisible ? comparisonGraphView.selectedStableID : nil),
             noise: noisePolicy,
             groupsByConcern: groupsByConcernEnabled,
             walkthroughStep: walkthroughIndex
@@ -32,13 +34,14 @@ public extension FlowDeltaReviewView {
         }
     }
 
-    /// Shows a slice in `direction` from the selected node, or hides the slice when `direction` is nil.
+    /// Shows a slice in `direction` from the selected node, or hides the slice when `direction` is nil. Only the
+    /// delta graph draws slices, so other presentations keep Slice off.
     func setSlice(_ direction: FlowSliceDirection?) {
         performHostChange {
             if let direction {
                 sliceDirectionControl.selectedSegment = direction.rawValue
             }
-            sliceButton.state = direction == nil ? .off : .on
+            sliceButton.state = direction != nil && presentation == .delta ? .on : .off
             updateSliceFocus()
         }
     }
@@ -47,15 +50,20 @@ public extension FlowDeltaReviewView {
 extension FlowDeltaReviewView {
     /// Runs a host-requested change and reports it once, as `.host`, however many internal updates it causes.
     func performHostChange(_ change: () -> Void) {
-        hostChangeDepth += 1
-        change()
-        hostChangeDepth -= 1
+        withoutReportingChanges(change)
         reportStateChange(.host)
     }
 
-    /// Tells the delegate about a new state. Changes inside a host change are reported when it finishes.
+    /// Runs internal updates without reporting them, so the caller reports the finished change once.
+    func withoutReportingChanges(_ change: () -> Void) {
+        reportingSuspensionDepth += 1
+        defer { reportingSuspensionDepth -= 1 }
+        change()
+    }
+
+    /// Tells the delegate about a new state. Changes made while reporting is suspended are reported by the caller.
     func reportStateChange(_ cause: FlowReviewChangeCause) {
-        guard hostChangeDepth == 0 else { return }
+        guard reportingSuspensionDepth == 0 else { return }
         let state = state
         guard state != lastReportedState else { return }
         lastReportedState = state

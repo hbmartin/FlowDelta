@@ -48,6 +48,34 @@ final class FlowGraphViewTests: XCTestCase {
         XCTAssertTrue(view.hasActiveNodeAnimations())
     }
 
+    func testFocusSelectsAVisibleNodeWhenTheSelectionLeftTheGraph() throws {
+        let engine = DominatorAnchoredLayout()
+        let wide = makeGraph(nodeCount: 4)
+        let narrow = makeGraph(nodeCount: 3)
+        let view = FlowGraphView(frame: CGRect(origin: .zero, size: engine.layout(graph: wide).contentSize))
+        let window = NSWindow(
+            contentRect: CGRect(x: 0, y: 0, width: 600, height: 800),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: true
+        )
+        window.contentView?.addSubview(view)
+        view.display(graph: wide, layout: engine.layout(graph: wide))
+        view.selectNode(withStableID: "node-3")
+        view.display(graph: narrow, layout: engine.layout(graph: narrow))
+        XCTAssertFalse(view.renderedStableIDs.contains("node-3"))
+
+        XCTAssertTrue(window.makeFirstResponder(view))
+        let selected = try XCTUnwrap(view.selectedStableID)
+        XCTAssertTrue(view.renderedStableIDs.contains(selected), selected)
+        XCTAssertNotEqual(view.focusRingMaskBounds, view.bounds)
+
+        XCTAssertTrue(window.makeFirstResponder(nil))
+        view.selectNode(withStableID: "node-1")
+        XCTAssertTrue(window.makeFirstResponder(view))
+        XCTAssertEqual(view.selectedStableID, "node-1", "A selection still on screen is kept")
+    }
+
     private func makeGraph(nodeCount: Int) -> ControlFlowGraph {
         let ids = (0 ..< nodeCount).map { StableID(rawValue: "node-\($0)") }
         let nodes = ids.enumerated().map { offset, id in

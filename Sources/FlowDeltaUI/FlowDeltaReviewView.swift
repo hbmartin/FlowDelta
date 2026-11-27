@@ -61,7 +61,8 @@ public final class FlowDeltaReviewView: NSView, NSTableViewDataSource, NSTableVi
     public weak var delegate: (any FlowDeltaReviewViewDelegate)?
     /// Where Copy Label and Copy Location put their text.
     public var pasteboard = NSPasteboard.general
-    var hostChangeDepth = 0
+    /// While above zero, state changes are reported once by whoever raised it, not as each update happens.
+    var reportingSuspensionDepth = 0
     var lastReportedState: FlowReviewState?
 
     override public init(frame frameRect: NSRect) {
@@ -99,6 +100,8 @@ public final class FlowDeltaReviewView: NSView, NSTableViewDataSource, NSTableVi
             tableView.selectRowIndexes([row], byExtendingSelection: false)
             tableView.scrollRowToVisible(row)
             rows[row].entity.map(show(row:))
+        } else {
+            clearDetail()
         }
         updateReviewControls()
     }
@@ -167,6 +170,7 @@ public final class FlowDeltaReviewView: NSView, NSTableViewDataSource, NSTableVi
     public func selectTriageRow(_ row: Int) {
         guard rows.indices.contains(row), let entity = rows[row].entity else { return }
         performHostChange {
+            endWalkthroughIfOutsideStep(entity)
             tableView.selectRowIndexes([row], byExtendingSelection: false)
             show(row: entity)
         }
@@ -198,7 +202,7 @@ public final class FlowDeltaReviewView: NSView, NSTableViewDataSource, NSTableVi
     private func setSliceDirection(_ direction: FlowSliceDirection, enabled: Bool) {
         performHostChange {
             sliceDirectionControl.selectedSegment = direction.rawValue
-            sliceButton.state = enabled ? .on : .off
+            sliceButton.state = enabled && presentation == .delta ? .on : .off
             updateSliceFocus()
         }
     }
@@ -248,12 +252,19 @@ public final class FlowDeltaReviewView: NSView, NSTableViewDataSource, NSTableVi
     public func tableViewSelectionDidChange(_ notification: Notification) {
         let row = tableView.selectedRow
         guard rows.indices.contains(row), let entry = rows[row].entity else { return }
+        endWalkthroughIfOutsideStep(entry)
         show(row: entry)
         reportStateChange(.user)
     }
 
     public func flowGraphView(_ view: FlowGraphView, didSelectNodeWithStableID stableID: String) {
         defer { reportStateChange(.user) }
+        // Before / After keeps one selection across its pair of graphs, so the review state names one node.
+        if view === comparisonGraphView {
+            graphView.selectNode(withStableID: nil)
+        } else if view === graphView {
+            comparisonGraphView.selectNode(withStableID: nil)
+        }
         let id = StableID(rawValue: stableID)
         if let callNode = callNodesByID[id] {
             showSource(for: callNode)

@@ -40,17 +40,21 @@ extension FlowDeltaReviewView {
         reportStateChange(.user)
     }
 
-    func updateSliceFocus() {
-        guard modeControl.selectedSegment == 0,
+    /// The node a slice is drawn from: the selected node of the delta graph while Slice is on, otherwise nil.
+    var sliceOrigin: StableID? {
+        guard modeControl.selectedSegment == FlowReviewPresentation.delta.rawValue,
               sliceButton.state == .on,
-              let selected = graphView.selectedStableID,
-              let currentProjection
-        else {
+              currentProjection != nil
+        else { return nil }
+        return graphView.selectedStableID.map(StableID.init(rawValue:))
+    }
+
+    func updateSliceFocus() {
+        guard let id = sliceOrigin, let currentProjection else {
             graphView.emphasizeNodes(withStableIDs: currentWalkthroughEmphasis)
             comparisonGraphView.emphasizeNodes(withStableIDs: nil)
             return
         }
-        let id = StableID(rawValue: selected)
         let slice = sliceDirectionControl.selectedSegment == 1
             ? currentProjection.backwardSlice(from: id)
             : currentProjection.forwardSlice(from: id)
@@ -233,15 +237,34 @@ extension FlowDeltaReviewView {
             graphHostSplit.addArrangedSubview(comparisonGraphScrollView)
         } else if !visible, comparisonGraphScrollView.superview === graphHostSplit {
             comparisonGraphScrollView.removeFromSuperview()
+            comparisonGraphView.selectNode(withStableID: nil)
         }
+    }
+
+    /// Empties the graph, source and selection when the report has no entity to show.
+    func clearDetail() {
+        tableView.deselectAll(nil)
+        currentFile = nil
+        currentFunction = nil
+        currentProjection = nil
+        callNodesByID = [:]
+        functionLabel.stringValue = ""
+        sliceButton.state = .off
+        displayPlaceholder("No changes in this revision")
+        sourceView.display(nil, title: "Source")
+        updateSliceFocus()
+        Self.logger.notice("Cleared the review detail because the revision has no entities")
     }
 
     func showSource(for callNode: CallGraphNode) {
         guard let path = callNode.path,
               let file = currentReport?.files.first(where: { $0.path == path })
         else { return }
-        let snapshot = file.comparison.new ?? file.comparison.old
-        sourceView.display(snapshot, title: "Call source")
+        // A removed function's range belongs to the base, even when its file still exists in the target.
+        let usesBase = callNode.state == .removed
+        let snapshot = usesBase ? file.comparison.old ?? file.comparison.new : file.comparison.new ?? file.comparison
+            .old
+        sourceView.display(snapshot, title: usesBase ? "Base call source" : "Call source")
         sourceView.select(callNode.range)
     }
 }
