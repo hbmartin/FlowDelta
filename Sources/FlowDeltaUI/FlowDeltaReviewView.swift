@@ -44,6 +44,8 @@ public final class FlowDeltaReviewView: NSView, NSTableViewDataSource, NSTableVi
     var callNodesByID: [StableID: CallGraphNode] = [:]
     /// Follows review state changes and supplies extra graph node menu items.
     public weak var delegate: (any FlowDeltaReviewViewDelegate)?
+    /// Where Copy Label and Copy Location put their text.
+    public var pasteboard = NSPasteboard.general
     var hostChangeDepth = 0
     var lastReportedState: FlowReviewState?
 

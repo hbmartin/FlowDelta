@@ -44,6 +44,8 @@ extension FlowDeltaReviewView {
             mainSplit.trailingAnchor.constraint(equalTo: trailingAnchor),
             mainSplit.bottomAnchor.constraint(equalTo: bottomAnchor)
         ])
+        assignAccessibilityIdentifiers()
+        configureKeyViewLoop()
     }
 
     func configureSidebar() -> NSView {

@@ -11,7 +11,8 @@ public protocol FlowDeltaReviewViewDelegate: AnyObject {
         cause: FlowReviewChangeCause
     )
 
-    /// Items appended, after a separator, to the context menu of the graph node with `stableID`.
+    /// Items appended, after a separator, to the context menu of the graph node with `stableID`. Items that already
+    /// belong to a menu are copied, so the same items can be returned for every menu.
     func flowDeltaReviewView(_ view: FlowDeltaReviewView, menuItemsForNodeWithStableID stableID: String) -> [NSMenuItem]
 }
 

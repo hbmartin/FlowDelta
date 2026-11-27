@@ -37,6 +37,29 @@ Analysis and revision loading are cancellable. Cancelling the task that runs `Fl
 
 See [PLAN.md](PLAN.md) for the current architecture, milestone status, and release gate. Implementation decisions and validation evidence are recorded in [notes](notes/).
 
+## Embedding
+
+`FlowDeltaReviewView` (`FDFlowDeltaReviewView` in Objective-C) is the review a host embeds. Call `display(_:)` with a `RevisionFlowDeltaReport`, then drive it with `setPresentation(_:)` (delta, before/after, calls), `setSlice(_:)` (forward, backward, or nil), `selectTriageRow(_:)` and `selectGraphNode(withStableID:)`. `state` reports the presentation, slice, selected function and selected node.
+
+Set `delegate` to a `FlowDeltaReviewViewDelegate` to hear each state change once, after it renders, with its cause: `.user` for controls, the triage list, the graph, node menus and keys, and `.host` for API calls and `display(_:)`. Persist preferences only for `.user` changes. The delegate can also append items to graph node context menus. Copy Label and Copy Location write to `pasteboard` (the general pasteboard by default).
+
+Node context menus offer Show Source, Forward or Backward Slice from Here and Clear Slice (delta presentation only), Copy Label and Copy Location, and Review Function for call nodes. In the focused graph, the arrow keys, Home and End move between nodes, Return shows the selected node's source, Space toggles its slice, and Escape clears the slice. Tab moves from the triage list to the graph and then the source.
+
+Accessibility identifiers:
+
+| Identifier | Element |
+|---|---|
+| `FlowDelta.Review` | The review view |
+| `FlowDelta.Review.Revisions`, `.Summary` | Header labels |
+| `FlowDelta.Review.Triage` | Triage table |
+| `FlowDelta.Review.Function` | Selected function label |
+| `FlowDelta.Review.Presentation` | Delta / Before & After / Calls control |
+| `FlowDelta.Review.Slice`, `.SliceDirection` | Slice checkbox and direction control |
+| `FlowDelta.Review.Graph`, `.ComparisonGraph` | Main graph and, in before/after, the target graph |
+| `FlowDelta.Review.Source` | Source text view |
+| `FlowDelta.Review.NodeMenu.<command>` | Node context menu items, e.g. `forwardSlice` |
+| node stable ID | Each graph node (an accessibility button) |
+
 ## Development
 
 ```sh
