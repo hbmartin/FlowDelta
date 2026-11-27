@@ -106,10 +106,11 @@ public struct FlowDeltaAnalyzer: Sendable {
             callGraph: callGraphBuilder.build(from: triage.changes),
             diagnostics: reportDiagnostics
         )
+        let grouped = report.with(concerns: HeuristicConcernGrouper().concerns(for: report))
         Self.logger.notice(
-            "Analyzed revision delta: \(report.files.count) files, \(report.entityChanges.count) entities, \(report.functionDeltas.count) functions"
+            "Analyzed revision delta: \(grouped.files.count) files, \(grouped.entityChanges.count) entities, \(grouped.functionDeltas.count) functions, \(grouped.concerns?.count ?? 0) concerns"
         )
-        return report
+        return grouped
     }
 
     private func analyze(

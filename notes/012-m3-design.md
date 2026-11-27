@@ -8,7 +8,7 @@ Started 2026-11-27 from FlowDelta `0.2.2` (plus the unreleased PR #3 fixes on `m
 - Concern grouping that splits a revision's entity changes into behavioral, refactoring and cosmetic groups and flags tangled commits.
 - A walkthrough that steps through a revision's visible changes function by function, with template narration.
 - Python and Go def-use, so data context and data slices cover all five languages.
-- Export and CLI options for the three features. The existing `render` output is unchanged byte for byte when no option is set.
+- Export and CLI options for the three features. With no option set, the table, Markdown and Mermaid output is unchanged; JSON gains only the new optional fields.
 - Native UI: a scope bar for the noise level and grouping, concern group rows in triage, and a walkthrough bar.
 
 Out of scope: MCP hooks, the iPad-ready core audit, IndexStoreDB enrichment and XML export.
@@ -43,20 +43,21 @@ Hosts choose the default; GitX uses `hideCosmetic`.
 - **Refactoring:**
   - a moved or renamed entity whose structural digest is unchanged, or
   - a modified callable whose changed nodes are all rewrites.
+- **Container:** a modified type whose tokens outside its member entities are unchanged. Every member change also modifies its type, so a container joins the group of its first behavioral member (or, failing that, the group of its first changed member) instead of merging its members' groups.
 - **Behavioral:** everything else.
 
 Behavioral entities are merged by union-find. The reasons for a merge, in order:
 
 1. call-graph edges between changed entities;
-2. a changed entity's new body naming another changed entity;
-3. for leftover singletons, the same file and the same containing type.
+2. a changed entity's new body naming another changed entity, where a type's body counts only its own tokens;
+3. for leftover singletons, the same file and the same containing type, where a type is in its own type.
 
-Refactoring entities and cosmetic entities each form one group per revision.
+Refactoring entities and cosmetic entities each form one group per revision, after the behavioral groups.
 
 Groups are deterministic:
 
 - Members are sorted by path and source order, and groups by their first member.
-- Titles are templates: "`name`" for a single member, "`name` and N related changes" for more, and "Renames and moves" and "Formatting and cosmetic changes" for the fixed groups.
+- Titles are templates: "`name`" for a single member, "`name` and N related changes" for more, and "Renames, moves and rewrites" and "Formatting and cosmetic changes" for the fixed groups.
 - Each group records the `links` that merged it, with their reasons.
 - A revision is **tangled** when it has two or more behavioral groups.
 
@@ -92,7 +93,7 @@ Python and Go def-use use AST binding rules from a per-language `LanguageProfile
 
 `FlowDeltaExportOptions(noise:groupByConcern:includeWalkthrough:)`:
 
-- The default options reproduce today's output exactly.
+- The default options reproduce today's table, Markdown and Mermaid output exactly.
 - `noise` applies the filter before counting and drawing nodes.
 - `groupByConcern` orders the table and Markdown output by concern group and adds the tangled-commit note.
 - `includeWalkthrough` appends the steps in Markdown and JSON.
