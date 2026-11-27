@@ -2,8 +2,8 @@
   "files": {
     "Sources/FlowDeltaAnalysis/FlowDeltaAnalyzer.swift": 98.84,
     "Sources/FlowDeltaAnalysis/MatchedFlowDeltaBuilder.swift": 97.79,
-    "Sources/FlowDeltaGit/GitCLIRevisionProvider.swift": 98.34,
-    "Sources/FlowDeltaUI/FlowDeltaReviewView.swift": 97.31
+    "Sources/FlowDeltaGit/GitCLIRevisionProvider.swift": 98.48,
+    "Sources/FlowDeltaUI/FlowDeltaReviewView.swift": 98.53
   },
-  "overall": 95.12
+  "overall": 95.49
 }
