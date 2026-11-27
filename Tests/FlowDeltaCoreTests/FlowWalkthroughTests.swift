@@ -97,6 +97,13 @@ final class FlowWalkthroughTests: XCTestCase {
         XCTAssertEqual(Set(steps.map(\.functionID)), [delta.id])
     }
 
+    func testCodeSpansOutlastTheBackticksInTheirLabel() {
+        XCTAssertEqual(FlowWalkthrough.code("a()"), "`a()`")
+        XCTAssertEqual(FlowWalkthrough.code("return `<b>new</b>`"), "`` return `<b>new</b>` ``")
+        XCTAssertEqual(FlowWalkthrough.code("a ``b`` c"), "```a ``b`` c```")
+        XCTAssertEqual(FlowWalkthrough.code("first\nsecond"), "`first second`")
+    }
+
     func testNarrationDescribesAddsRemovesRewritesAndTheBasisOfWhatIsAffected() {
         func narration(
             _ states: [String: DeltaState],

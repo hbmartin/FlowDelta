@@ -76,8 +76,19 @@ public enum FlowWalkthrough {
         return "\(action)\(rewrite) — affects \(nodes) by \(basis)."
     }
 
-    private static func code(_ label: String?) -> String {
-        "`\((label ?? "").replacingOccurrences(of: "\n", with: " "))`"
+    /// A Markdown code span whose backtick fence is longer than any backtick run in the label, padded when the label
+    /// starts or ends with a backtick, as CommonMark requires.
+    static func code(_ label: String?) -> String {
+        let text = (label ?? "").replacingOccurrences(of: "\n", with: " ")
+        var longest = 0
+        var run = 0
+        for character in text {
+            run = character == "`" ? run + 1 : 0
+            longest = max(longest, run)
+        }
+        let fence = String(repeating: "`", count: longest + 1)
+        let padded = text.hasPrefix("`") || text.hasSuffix("`") ? " \(text) " : text
+        return fence + padded + fence
     }
 
     // MARK: Graph

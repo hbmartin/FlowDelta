@@ -73,4 +73,21 @@ final class FlowTriageTests: XCTestCase {
         XCTAssertEqual(FlowTriage.functionOrder(of: sections), [StableID(rawValue: "f.b")])
         XCTAssertEqual(FlowTriage.sections(for: grouped, groupsByConcern: false).count, 1)
     }
+
+    func testChangesNoConcernHoldsAreNotCalledUnchanged() {
+        let partial = report(concerns: [FlowConcern(
+            id: StableID(rawValue: "1"),
+            kind: .behavioral,
+            title: "`b`",
+            memberIDs: [StableID(rawValue: "b")],
+            links: []
+        )])
+        let sections = FlowTriage.sections(for: partial, groupsByConcern: true)
+        XCTAssertEqual(sections.map(\.title), ["`b`", "Other Changes", "Unchanged"])
+        XCTAssertEqual(sections.map { $0.entries.map(\.change.entityID?.rawValue) }, [["b"], ["a"], ["c"]])
+
+        let none = FlowTriage.sections(for: report(concerns: []), groupsByConcern: true)
+        XCTAssertEqual(none.map(\.title), ["Other Changes", "Unchanged"])
+        XCTAssertEqual(none.map { $0.entries.map(\.change.entityID?.rawValue) }, [["a", "b"], ["c"]])
+    }
 }

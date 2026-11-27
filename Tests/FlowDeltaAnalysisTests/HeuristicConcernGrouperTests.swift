@@ -96,6 +96,35 @@ final class HeuristicConcernGrouperTests: XCTestCase {
         XCTAssertFalse(report.isTangled)
     }
 
+    func testARenameIsRefactoringOnlyWhileItsSignatureStays() throws {
+        let base = RevisionIdentity("base")
+        let target = RevisionIdentity("target")
+        let report = try FlowDeltaAnalyzer().analyze(RevisionComparison(
+            base: base,
+            target: target,
+            files: [FileComparison(
+                old: SourceSnapshot(
+                    path: "a.py",
+                    revision: base,
+                    language: .python,
+                    text: "def price(base=1):\n    return base * 2\n\ndef label():\n    return 'x'\n"
+                ),
+                new: SourceSnapshot(
+                    path: "a.py",
+                    revision: target,
+                    language: .python,
+                    text: "def price(base=2):\n    return base * 2\n\ndef title():\n    return 'x'\n"
+                )
+            )]
+        ))
+        let price = try XCTUnwrap(report.entityChanges.first { $0.new?.name == "price" })
+        let title = try XCTUnwrap(report.entityChanges.first { $0.new?.name == "title" })
+        XCTAssertEqual(price.kind, .renamed, "A changed parameter clause changes the qualified name")
+        XCTAssertEqual(HeuristicConcernGrouper.classify(price, function: nil, in: []), .behavioral)
+        XCTAssertEqual(HeuristicConcernGrouper.classify(title, function: nil, in: []), .refactoring)
+        XCTAssertEqual(report.concern(containing: price)?.kind, .behavioral)
+    }
+
     func testARenameWithABodyChangeIsBehavioral() {
         let change = EntityChange(kind: .renamed, old: nil, new: nil, confidence: nil)
         XCTAssertEqual(HeuristicConcernGrouper.classify(change, function: nil, in: []), .behavioral)

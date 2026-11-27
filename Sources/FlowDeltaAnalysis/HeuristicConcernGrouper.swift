@@ -192,6 +192,11 @@ public struct HeuristicConcernGrouper: Sendable {
         return members.sorted { $0.order < $1.order }.map(\.member)
     }
 
+    /// The parameter clause of a qualified name, which a pure rename or move leaves unchanged.
+    static func signature(of entity: SourceEntity) -> Substring {
+        entity.qualifiedName.firstIndex(of: "(").map { entity.qualifiedName[$0...] } ?? ""
+    }
+
     static func classify(
         _ change: EntityChange,
         function: FunctionFlowDelta?,
@@ -199,7 +204,10 @@ public struct HeuristicConcernGrouper: Sendable {
     ) -> MemberKind {
         switch change.kind {
         case .moved, .renamed:
-            if let old = change.old, let new = change.new, old.body.structuralDigest == new.body.structuralDigest {
+            // A rename keeps the signature; a changed parameter clause, such as a new default value, is behavior.
+            if let old = change.old, let new = change.new, old.body.structuralDigest == new.body.structuralDigest,
+               signature(of: old) == signature(of: new)
+            {
                 return .refactoring
             }
             return .behavioral

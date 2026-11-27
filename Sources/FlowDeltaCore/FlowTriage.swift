@@ -18,7 +18,7 @@ public struct FlowTriageSection: Hashable, Sendable {
 /// The order a review lists entity changes in.
 public enum FlowTriage {
     /// Every entity change in file order, or grouped by concern when `groupsByConcern` is set and the report has
-    /// concerns, with the entities no group holds (the unchanged ones) last.
+    /// concerns. Changes no concern holds follow as Other Changes, and unchanged entities come last.
     public static func sections(for report: RevisionFlowDeltaReport, groupsByConcern: Bool) -> [FlowTriageSection] {
         let entries = report.files.flatMap { file in
             file.entityChanges.map { change in
@@ -44,8 +44,13 @@ public enum FlowTriage {
             ))
             remaining.removeAll(where: isMember)
         }
-        if !remaining.isEmpty {
-            sections.append(FlowTriageSection(title: "Unchanged", kind: nil, entries: remaining))
+        let changed = remaining.filter { $0.change.kind != .unchanged }
+        if !changed.isEmpty {
+            sections.append(FlowTriageSection(title: "Other Changes", kind: nil, entries: changed))
+        }
+        let unchanged = remaining.filter { $0.change.kind == .unchanged }
+        if !unchanged.isEmpty {
+            sections.append(FlowTriageSection(title: "Unchanged", kind: nil, entries: unchanged))
         }
         return sections
     }
