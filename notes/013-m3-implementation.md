@@ -49,6 +49,7 @@ M3 is assembled on `codex/m2-closeout-m3` against the design in `notes/012`. Mil
   - announces the narration through VoiceOver.
 - **Delegate state.** Changes to the noise level, grouping and step reach the delegate as `FlowReviewState` changes, caused by the user or the host.
 - **Accessibility.** Every new control has a `FlowDelta.Review.*` identifier. Tab order runs from noise to grouping to walkthrough to triage, and then to the graph and source.
+- **Appearance.** The Snow Leopard chrome is drawn in fixed light colors, and inside a Dark Mode host its system text colors turned white on light fills. The review view now adopts Aqua unless its host sets an appearance. Layer colors are resolved for each view's own appearance, and node labels use a fixed dark color. A dark palette is deferred.
 
 ## Authored verification
 

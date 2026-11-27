@@ -76,7 +76,10 @@ public final class FlowGraphView: NSView {
         self.edgeStates = edgeStates
         let previousLayout = currentLayout
         let previousEdges = edgeContainer
-        let nextEdges = makeEdgeContainer(graph: graph, layout: layout)
+        var nextEdges = CALayer()
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            nextEdges = makeEdgeContainer(graph: graph, layout: layout)
+        }
         canvasLayer.insertSublayer(nextEdges, at: 0)
         edgeContainer = nextEdges
 
@@ -175,8 +178,21 @@ public final class FlowGraphView: NSView {
     private func configureLayerTree() {
         wantsLayer = true
         layer = canvasLayer
-        canvasLayer.backgroundColor = NSColor.windowBackgroundColor.cgColor
+        updateCanvasColor()
         canvasLayer.addSublayer(edgeContainer)
+    }
+
+    override public func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        updateCanvasColor()
+        updateNodeEmphasis()
+    }
+
+    /// Layer colors are resolved once, so they are resolved for this view's appearance rather than the app's.
+    private func updateCanvasColor() {
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            canvasLayer.backgroundColor = NSColor.windowBackgroundColor.cgColor
+        }
     }
 
     private func makeNodeView(_ node: FlowNode) -> FlowNodeView {
@@ -312,14 +328,16 @@ public final class FlowGraphView: NSView {
     private func updateNodeEmphasis() {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        for (id, nodeView) in nodeViews {
-            let layer = nodeView.shapeLayer
-            let isSelected = id == selectedNode
-            layer.lineWidth = isSelected ? 3 : 1
-            layer.strokeColor = isSelected
-                ? NSColor.keyboardFocusIndicatorColor.cgColor
-                : NSColor(calibratedWhite: 0.35, alpha: 0.8).cgColor
-            layer.opacity = emphasizedNodes.map { $0.contains(id) ? 1 : 0.20 } ?? 1
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            for (id, nodeView) in nodeViews {
+                let layer = nodeView.shapeLayer
+                let isSelected = id == selectedNode
+                layer.lineWidth = isSelected ? 3 : 1
+                layer.strokeColor = isSelected
+                    ? NSColor.keyboardFocusIndicatorColor.cgColor
+                    : NSColor(calibratedWhite: 0.35, alpha: 0.8).cgColor
+                layer.opacity = emphasizedNodes.map { $0.contains(id) ? 1 : 0.20 } ?? 1
+            }
         }
         CATransaction.commit()
     }
@@ -349,7 +367,8 @@ private final class FlowNodeView: NSView {
         labelLayer.contentsScale = NSScreen.main?.backingScaleFactor ?? 2
         labelLayer.font = NSFont.systemFont(ofSize: 12, weight: .medium)
         labelLayer.fontSize = 12
-        labelLayer.foregroundColor = NSColor.labelColor.cgColor
+        // Node fills are fixed light colors, so their labels are a fixed dark color in every appearance.
+        labelLayer.foregroundColor = NSColor.black.withAlphaComponent(0.85).cgColor
         labelLayer.isWrapped = true
         shapeLayer.addSublayer(labelLayer)
         setAccessibilityElement(true)

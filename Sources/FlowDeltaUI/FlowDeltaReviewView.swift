@@ -74,6 +74,11 @@ public final class FlowDeltaReviewView: NSView, NSTableViewDataSource, NSTableVi
         configureView()
     }
 
+    override public func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        updateBackgroundColor()
+    }
+
     public func display(_ report: RevisionFlowDeltaReport) {
         performHostChange { show(report) }
     }

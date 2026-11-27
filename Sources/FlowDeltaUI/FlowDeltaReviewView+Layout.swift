@@ -4,8 +4,12 @@ import FlowDeltaCore
 /// Builds the review view's header, triage sidebar, graph panes and source pane.
 extension FlowDeltaReviewView {
     func configureView() {
+        // The Snow Leopard chrome (gradients, pastel nodes, the source header) is drawn in fixed light
+        // colors, so its system text colors must resolve for Aqua even inside a Dark Mode window. A host
+        // that supplies its own appearance replaces this.
+        appearance = NSAppearance(named: .aqua)
         wantsLayer = true
-        layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
+        updateBackgroundColor()
 
         header.translatesAutoresizingMaskIntoConstraints = false
         addSubview(header)
@@ -280,5 +284,12 @@ extension FlowDeltaReviewView {
         scrollView.autohidesScrollers = true
         scrollView.borderType = .noBorder
         scrollView.documentView = graph
+    }
+
+    /// Layer colors are resolved once, so they are resolved for this view's appearance rather than the app's.
+    func updateBackgroundColor() {
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
+        }
     }
 }

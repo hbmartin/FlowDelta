@@ -51,6 +51,10 @@ See [PLAN.md](PLAN.md) for the current architecture, milestone status, and relea
 
 Set `delegate` to a `FlowDeltaReviewViewDelegate` to hear each state change once, after it renders, with its cause: `.user` for controls, the triage list, the graph, node menus and keys, and `.host` for API calls and `display(_:)`. Persist preferences only for `.user` changes. The delegate can also append items to graph node context menus. Copy Label and Copy Location write to `pasteboard` (the general pasteboard by default).
 
+`setNoise(_:)` hides formatting or all cosmetic node changes (`hiddenNoiseCount` says how many), `setGroupsByConcern(_:)` groups triage by concern, and `startWalkthrough()`, `showNextWalkthroughStep()`, `showPreviousWalkthroughStep()` and `endWalkthrough()` drive the walkthrough. `state` includes the noise level, grouping and walkthrough step, so a host can persist them like the presentation and slice.
+
+The review view draws Snow Leopard chrome in fixed light colors, so it adopts the Aqua appearance even inside a Dark Mode window. A host that sets `appearance` itself replaces this.
+
 Node context menus offer Show Source, Forward or Backward Slice from Here and Clear Slice (delta presentation only), Copy Label and Copy Location, and Review Function for call nodes. In the focused graph, the arrow keys, Home and End move between nodes, Return shows the selected node's source, Space toggles its slice, and Escape clears the slice. Tab moves from the triage list to the graph and then the source.
 
 Accessibility identifiers:
@@ -65,6 +69,11 @@ Accessibility identifiers:
 | `FlowDelta.Review.Slice`, `.SliceDirection` | Slice checkbox and direction control |
 | `FlowDelta.Review.Graph`, `.ComparisonGraph` | Main graph and, in before/after, the target graph |
 | `FlowDelta.Review.Source` | Source text view |
+| `FlowDelta.Review.Noise`, `.HiddenNoise` | Noise pop-up and the "N hidden — Show" link |
+| `FlowDelta.Review.GroupByConcern` | Group by Concern checkbox |
+| `FlowDelta.Review.TangledBanner`, `.TangledBanner.Message`, `.TangledBanner.Group` | Tangled revision banner, its message and its Group by Concern button |
+| `FlowDelta.Review.Walkthrough` | Walkthrough button |
+| `FlowDelta.Review.WalkthroughBar`, `.Walkthrough.Previous`, `.Walkthrough.Next`, `.Walkthrough.Step`, `.Walkthrough.Narration`, `.Walkthrough.Done` | Walkthrough bar and its controls |
 | `FlowDelta.Review.NodeMenu.<command>` | Node context menu items, e.g. `forwardSlice` |
 | node stable ID | Each graph node (an accessibility button) |
 
