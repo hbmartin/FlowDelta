@@ -81,7 +81,7 @@ final class HeuristicConcernGrouperTests: XCTestCase {
             ("C.swift", "func before() -> Int {\n    return 42\n}\n", "func after() -> Int {\n    return 42\n}\n"),
             (
                 "D.swift",
-                "struct Box {\n    func open() -> Int {\n        return self.value;\n    }\n}\n",
+                "struct Box {\n    func open() -> Int {\n        return /* stored */ value\n    }\n}\n",
                 "struct Box {\n    func open() -> Int {\n        return value\n    }\n}\n"
             )
         ])

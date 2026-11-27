@@ -30,7 +30,8 @@ final class FlowNoiseClassifierTests: XCTestCase {
             language: .swift
         )
         XCTAssertEqual(nodes["var sum = a + b"]?.noise, .formatting)
-        XCTAssertEqual(nodes["log(sum)"]?.noise, .optionalSyntax)
+        XCTAssertEqual(nodes["log(sum)"]?.state, .modified)
+        XCTAssertNil(nodes["log(sum)"]?.noise, "self.log and log can name different functions")
         XCTAssertEqual(nodes["if sum > 10"]?.noise, .optionalSyntax)
         XCTAssertEqual(nodes["sum += 1"]?.noise, .rewrite)
         XCTAssertEqual(nodes["if sum == limit"]?.noise, .rewrite)
@@ -59,6 +60,58 @@ final class FlowNoiseClassifierTests: XCTestCase {
         )
         XCTAssertEqual(python["reset()"]?.state, .modified)
         XCTAssertNil(python["reset()"]?.noise, "Python's self. is how an attribute is reached")
+    }
+
+    func testSwiftSelfStaysBecauseALocalNameCanShadowAProperty() throws {
+        let nodes = try changedNodes(
+            old: "struct Box {\n    var x = 1\n    func read(_ x: Int) -> Int {\n        return self.x\n    }\n}\n",
+            new: "struct Box {\n    var x = 1\n    func read(_ x: Int) -> Int {\n        return x\n    }\n}\n",
+            path: "Box.swift",
+            language: .swift
+        )
+        XCTAssertEqual(nodes["return x"]?.state, .modified)
+        XCTAssertNil(nodes["return x"]?.noise, "The parameter x shadows the property self.x")
+    }
+
+    func testJSXTextComparesAsItRenders() throws {
+        func noise(_ old: String, _ new: String, path: String, language: SourceLanguage) throws -> FlowNoiseLevel? {
+            let nodes = try changedNodes(old: old, new: new, path: path, language: language)
+            let node = try XCTUnwrap(nodes.values.first { $0.new?.label.hasPrefix("return") == true }, "\(nodes.keys)")
+            XCTAssertEqual(node.state, .modified)
+            return node.noise
+        }
+        func component(_ markup: String) -> String {
+            "function View() {\n  return \(markup)\n}\n"
+        }
+        XCTAssertNil(
+            try noise(component("<pre> a </pre>"), component("<pre>a</pre>"), path: "a.jsx", language: .javascript),
+            "Spaces inside a line of JSX text render"
+        )
+        XCTAssertNil(try noise(
+            component("<p>Total: {n}</p>"),
+            component("<p>Total:{n}</p>"),
+            path: "a.tsx",
+            language: .typescript
+        ))
+        let reindented = try changedNodes(
+            old: component("<p>\n      Hello   world\n    </p>"),
+            new: component("<p>\n  Hello   world\n</p>"),
+            path: "a.jsx",
+            language: .javascript
+        )
+        XCTAssertEqual(
+            reindented.values.first { $0.new?.label.hasPrefix("return") == true }?.state,
+            .retained,
+            "Whitespace touching a line break does not render"
+        )
+        XCTAssertEqual(
+            try noise(component("<p>Hi</p>;"), component("<p>Hi</p>"), path: "a.tsx", language: .typescript),
+            .optionalSyntax
+        )
+        XCTAssertEqual(FlowNoiseClassifier.renderedJSXText("\n  one  \n\t two\n  "), "one two")
+        XCTAssertEqual(FlowNoiseClassifier.renderedJSXText(" a "), " a ")
+        XCTAssertEqual(FlowNoiseClassifier.renderedJSXText("\n   \n"), "")
+        XCTAssertEqual(FlowNoiseClassifier.renderedJSXText("a\r\nb"), "a b")
     }
 
     func testCommasThatChangeAValueAreNeverOptional() throws {
@@ -155,7 +208,13 @@ final class FlowNoiseClassifierTests: XCTestCase {
     }
 
     func testOptionalSyntaxRules() {
-        let swift = LanguageProfile.profile(for: .swift).noise
+        // No built-in language has an optional receiver; a host's own rules still can.
+        let swift = LanguageNoiseRules(
+            commentKinds: ["comment"],
+            optionalTokens: [";"],
+            optionalReceivers: ["self"],
+            allowsTrailingCommas: true
+        )
         func stripped(_ tokens: [String], condition: Bool = false) -> [String] {
             FlowNoiseClassifier.withoutOptionalSyntax(tokens, rules: swift, isCondition: condition)
         }
@@ -203,10 +262,11 @@ final class FlowNoiseClassifierTests: XCTestCase {
         for language in SourceLanguage.allCases {
             XCTAssertTrue(LanguageProfile.profile(for: language).noise.commentKinds.contains("comment"), "\(language)")
         }
-        XCTAssertTrue(LanguageProfile.profile(for: .python).noise.optionalReceivers.isEmpty)
-        XCTAssertTrue(LanguageProfile.profile(for: .go).noise.optionalReceivers.isEmpty)
-        XCTAssertTrue(LanguageProfile.profile(for: .javascript).noise.optionalReceivers.isEmpty)
-        XCTAssertTrue(LanguageProfile.profile(for: .typescript).noise.optionalReceivers.isEmpty)
+        for language in SourceLanguage.allCases {
+            XCTAssertTrue(LanguageProfile.profile(for: language).noise.optionalReceivers.isEmpty, "\(language)")
+        }
+        XCTAssertTrue(LanguageProfile.profile(for: .javascript).noise.literalKinds.contains("jsx_text"))
+        XCTAssertTrue(LanguageProfile.profile(for: .typescript).noise.literalKinds.contains("jsx_text"))
         for language in SourceLanguage.allCases {
             XCTAssertFalse(LanguageProfile.profile(for: language).noise.literalKinds.isEmpty, "\(language)")
         }

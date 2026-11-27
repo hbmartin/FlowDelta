@@ -6,7 +6,9 @@ public struct LanguageNoiseRules: Hashable, Sendable {
     public let commentKinds: Set<String>
     /// Tokens that are optional wherever they appear, such as a statement-ending `;`.
     public let optionalTokens: Set<String>
-    /// Receivers that are optional before `.`, such as Swift's `self`.
+    /// Receivers that are optional before `.`. No built-in language has one: a parameter or local can shadow a
+    /// member, so Swift's `self.x` and `x` can name different values, and `this.` and `self.` reach members in
+    /// scripts and Python.
     public let optionalReceivers: Set<String>
     /// Whether a trailing `,` before a closing bracket is optional. A comma right after an opening bracket or another
     /// comma is an array hole and is never optional.
@@ -40,10 +42,11 @@ public extension LanguageProfile {
     var noise: LanguageNoiseRules {
         switch language {
         case .swift:
+            // `self.x` reads the property even where a parameter or local `x` shadows it, so `self.` stays.
             LanguageNoiseRules(
                 commentKinds: ["comment", "multiline_comment"],
                 optionalTokens: [";"],
-                optionalReceivers: ["self"],
+                optionalReceivers: [],
                 allowsTrailingCommas: true,
                 literalKinds: [
                     "line_string_literal",
@@ -59,7 +62,8 @@ public extension LanguageProfile {
                 optionalTokens: [";"],
                 optionalReceivers: [],
                 allowsTrailingCommas: true,
-                literalKinds: ["string", "template_string", "regex"]
+                // JSX text is content: it compares as it renders.
+                literalKinds: ["string", "template_string", "regex", "jsx_text"]
             )
         case .python:
             // Python's `self.` is how an instance attribute is reached, so it is never optional.

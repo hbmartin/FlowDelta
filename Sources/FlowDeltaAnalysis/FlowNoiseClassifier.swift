@@ -144,7 +144,7 @@ struct FlowNoiseClassifier {
             return []
         }
         if rules.literalKinds.contains(node.kind) {
-            return [node.text]
+            return literalToken(of: node).map { [$0] } ?? []
         }
         if node.children.isEmpty {
             let token = node.text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -154,6 +154,40 @@ struct FlowNoiseClassifier {
         return node.children.indices.flatMap { index in
             index == tupleComma ? [Self.tupleComma] : tokens(of: node.children[index], rules: rules)
         }
+    }
+
+    /// A literal's text as one token, or nil for JSX text that renders nothing.
+    static func literalToken(of node: SyntaxNode) -> String? {
+        guard node.kind == "jsx_text" else { return node.text }
+        let rendered = renderedJSXText(node.text)
+        return rendered.isEmpty ? nil : rendered
+    }
+
+    /// JSX text as React renders it: tabs become spaces, whitespace touching a line break is dropped, lines left
+    /// empty disappear, and the rest join with one space. Spaces within a line stay.
+    static func renderedJSXText(_ text: String) -> String {
+        let lines = text.replacingOccurrences(of: "\r\n", with: "\n")
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map { $0.replacingOccurrences(of: "\t", with: " ") }
+        let lastNonEmpty = lines.lastIndex { $0.contains { $0 != " " } }
+        var rendered = ""
+        for (index, line) in lines.enumerated() {
+            var trimmed = Substring(line)
+            if index > 0 {
+                trimmed = trimmed.drop { $0 == " " }
+            }
+            if index < lines.count - 1 {
+                while trimmed.last == " " {
+                    trimmed = trimmed.dropLast()
+                }
+            }
+            guard !trimmed.isEmpty else { continue }
+            rendered += trimmed
+            if index != lastNonEmpty {
+                rendered += " "
+            }
+        }
+        return rendered
     }
 
     /// The index of the comma that makes `node` a one-element tuple: its only comma, right before its closing bracket.
