@@ -103,9 +103,10 @@ final class FlowDeltaReviewStateTests: XCTestCase {
         })
         let change = try XCTUnwrap(table.tableColumns.first { $0.identifier.rawValue == "change" })
         let name = try XCTUnwrap(table.tableColumns.first { $0.identifier.rawValue != "change" })
-        let rows = (0 ..< view.numberOfRows(in: table)).map { row in
-            [change, name].map { column in
-                (view.tableView(table, viewFor: column, row: row) as? NSTableCellView)?.textField?.stringValue ?? ""
+        let rows: [[String]] = (0 ..< view.numberOfRows(in: table)).map { row in
+            [change, name].map { column -> String in
+                let cell = view.tableView(table, viewFor: column, row: row) as? NSTableCellView
+                return cell?.textField?.stringValue ?? ""
             }
         }
         let removed = try XCTUnwrap(rows.first { $0.first == "Removed" }, "\(rows)")
